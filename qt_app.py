@@ -611,30 +611,74 @@ class Mixer:
         self.seq = -1
         self.fifo: dict[str, np.ndarray] = {}
         self.primed: dict[str, bool] = {}
+        self.float = False
+        self.err_logged = False
         if not HAVE_AUDIO:
-            return
+            self.note = "Звук: модуль QtMultimedia не загрузился, звука в программе не будет."
+        else:
+            try:
+                self.note = self._open()
+            except Exception as e:  # noqa: BLE001
+                self.note = f"Звук недоступен: {e}"
         try:
-            fmt = QAudioFormat()
-            fmt.setSampleRate(48000)
-            fmt.setChannelCount(1)
-            fmt.setSampleSize(16)
-            fmt.setCodec("audio/pcm")
-            fmt.setByteOrder(QAudioFormat.LittleEndian)
-            fmt.setSampleType(QAudioFormat.SignedInt)
-            dev = QAudioDeviceInfo.defaultOutputDevice()
+            engine.log(self.note)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _devices(self):
+        """Сначала устройство по умолчанию через waveOut (плагин windows) — он принимает почти любой
+        формат; затем то же устройство через WASAPI; затем остальные."""
+        d0 = QAudioDeviceInfo.defaultOutputDevice()
+        name = "" if d0.isNull() else d0.deviceName()
+        allv = list(QAudioDeviceInfo.availableDevices(QAudio.AudioOutput))
+        same = [d for d in allv if d.deviceName() == name]
+        same.sort(key=lambda d: 0 if d.realm() == "windows" else 1)
+        rest = [d for d in allv if d.deviceName() != name]
+        return ([] if d0.isNull() else same + [d0]) + rest
+
+    def _fmt(self, rate, ch, flt):
+        f = QAudioFormat()
+        f.setSampleRate(rate)
+        f.setChannelCount(ch)
+        f.setSampleSize(32 if flt else 16)
+        f.setCodec("audio/pcm")
+        f.setByteOrder(QAudioFormat.LittleEndian)
+        f.setSampleType(QAudioFormat.Float if flt else QAudioFormat.SignedInt)
+        return f
+
+    def _try(self, dev, fmt):
+        out = QAudioOutput(dev, fmt)
+        bpf = fmt.sampleSize() // 8 * fmt.channelCount()
+        out.setBufferSize(int(fmt.sampleRate() * 0.35) * bpf)
+        io = out.start()
+        if io is None or out.error() != QAudio.NoError:
+            out.stop()
+            return False
+        self.out, self.io = out, io
+        self.rate, self.ch = fmt.sampleRate(), fmt.channelCount()
+        self.float, self.bpf = fmt.sampleType() == QAudioFormat.Float, bpf
+        self.ok = True
+        return True
+
+    def _open(self):
+        devs = self._devices()
+        if not devs:
+            return "Звук недоступен: Windows не сообщает ни одного устройства вывода."
+        tried = []
+        for dev in devs:
             if dev.isNull():
-                return
-            if not dev.isFormatSupported(fmt):
-                fmt = dev.nearestFormat(fmt)
-            if fmt.sampleSize() != 16 or fmt.sampleType() != QAudioFormat.SignedInt:
-                return
-            self.rate, self.ch = fmt.sampleRate(), fmt.channelCount()
-            self.out = QAudioOutput(dev, fmt)
-            self.out.setBufferSize(int(self.rate * 0.35) * 2 * self.ch)
-            self.io = self.out.start()
-            self.ok = self.io is not None
-        except Exception as e:  # noqa: BLE001
-            print("Звук недоступен:", e)
+                continue
+            cands = [self._fmt(r, c, fl) for fl in (False, True) for r in (48000, 44100) for c in (1, 2)]
+            cands = [f for f in cands if dev.isFormatSupported(f)]
+            near = dev.nearestFormat(self._fmt(48000, 1, False))
+            if (near.sampleType(), near.sampleSize()) in ((QAudioFormat.SignedInt, 16), (QAudioFormat.Float, 32)):
+                cands.append(near)
+            for f in cands:
+                if self._try(dev, f):
+                    return (f"Звук: {dev.deviceName()} ({dev.realm()}), {f.sampleRate()} Гц, "
+                            f"{f.channelCount()} кан., {'float' if self.float else '16 бит'}.")
+            tried.append(f"{dev.deviceName()} ({dev.realm()})")
+        return "Звук недоступен: ни одно устройство не открылось — " + "; ".join(tried[:4])
 
     def tick(self, keys, gains, master):
         if not self.ok:
@@ -660,7 +704,14 @@ class Mixer:
                 if k not in keys:
                     self.fifo.pop(k)
                     self.primed.pop(k, None)
-        frames = self.out.bytesFree() // (2 * self.ch)
+        if self.out.state() == QAudio.StoppedState and self.out.error() != QAudio.NoError:
+            if not self.err_logged:
+                self.err_logged = True
+                self.E.log(f"Звук: вывод остановился (ошибка {int(self.out.error())}), перезапускаю.")
+            self.io = self.out.start()
+            if self.io is None:
+                return
+        frames = self.out.bytesFree() // self.bpf
         if frames < self.rate // 50:
             return
         n12 = max(1, frames * 12000 // self.rate)
@@ -678,7 +729,8 @@ class Mixer:
                 self.primed[k] = False
         mix *= master
         y = np.interp(np.arange(frames) * (12000 / self.rate), np.arange(n12), mix)
-        y = (np.clip(y, -1, 1) * 32767).astype("<i2")
+        y = np.clip(y, -1, 1)
+        y = y.astype("<f4") if self.float else (y * 32767).astype("<i2")
         if self.ch > 1:
             y = np.repeat(y, self.ch)
         self.io.write(y.tobytes())
@@ -1300,7 +1352,12 @@ class Main(QtWidgets.QMainWindow):
         if not self.mixer.ok:
             na = QtWidgets.QLabel("звук недоступен")
             na.setStyleSheet(f"color:{C['bad']}")
+            na.setToolTip(self.mixer.note)
             h.addWidget(na)
+        self.snd_hint = QtWidgets.QLabel("ничего не слушаю — включи «лучший» или звук на карточке приёмника")
+        self.snd_hint.setStyleSheet(f"color:{C['warn']};font-size:12px")
+        self.snd_hint.setVisible(False)
+        h.addWidget(self.snd_hint)
         self._mute_icon()
         v.addWidget(top)
         self.tabs = QtWidgets.QTabWidget()
@@ -1929,12 +1986,15 @@ class Main(QtWidgets.QMainWindow):
 
     def sound_tick(self):
         keys = self.playing()
+        self.snd_hint.setVisible(self.mixer.ok and not keys and bool(self.S.get("active")))
         gains = {k: (self.snd(k)["v"] / 100) ** 2 * 1.4 for k in keys}
         master = 0 if self.muted else (self.master / 100) ** 2 * 1.5
         try:
             self.mixer.tick(keys, gains, master)
         except Exception as e:  # noqa: BLE001
-            print("звук:", e)
+            if not getattr(self, "_snd_err", False):
+                self._snd_err = True
+                self.E.log(f"Звук: ошибка воспроизведения: {e}")
 
     # ---------- опрос ядра ----------
     def poll(self):
