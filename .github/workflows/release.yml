@@ -1,0 +1,60 @@
+# Сборка Windows-версии (SSTV.exe) на серверах GitHub.
+# Запускается при публикации тега вида v1.0.0 — готовый архив прикрепляется к релизу.
+# Можно запустить и вручную: вкладка Actions → «Сборка Windows» → Run workflow (архив будет в Artifacts).
+name: Сборка Windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: "0"     # Chromium ставится внутрь пакета и попадает в сборку
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Библиотеки
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller==6.22.3
+
+      - name: Chromium
+        run: python -m playwright install chromium
+
+      - name: Сборка
+        run: python -m PyInstaller --noconfirm sstv.spec
+
+      - name: Проверка сборки
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/SSTV-MKS/SSTV.exe)) { throw "SSTV.exe не собран" }
+          if (-not (Get-ChildItem -Recurse dist/SSTV-MKS -Filter chrome.exe)) { throw "в сборке нет Chromium" }
+          "{0:N0} МБ" -f ((Get-ChildItem -Recurse dist/SSTV-MKS | Measure-Object Length -Sum).Sum / 1MB)
+
+      - name: Архив
+        shell: pwsh
+        run: |
+          Copy-Item README.md, LICENSE dist/SSTV-MKS/
+          Compress-Archive -Path dist/SSTV-MKS -DestinationPath "SSTV-MKS-${{ github.ref_name }}-windows.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SSTV-MKS-windows
+          path: SSTV-MKS-*-windows.zip
+
+      - name: Релиз
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SSTV-MKS-*-windows.zip
