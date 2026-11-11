@@ -228,7 +228,7 @@ def check_owrx(row: dict, timeout=8.0) -> dict | None:
     short = short_name(row["place"], row["title"]) if row.get("place") else \
         f"{country(float(lat), float(lon)) or '??'} {(_city(rc.get('location') or '') or _city(row['title']))[:11]}".strip()
     return dict(url=base, kind="owrx", lat=float(lat), lon=float(lon),
-                name=(rc.get("name") or row["title"])[:80], short=short, src=row.get("src", "rx-tx.info"),
+                name=clean_name(rc.get("name") or row["title"], urlsplit(base).netloc), short=short, src=row.get("src", "rx-tx.info"),
                 profile=prof, max_clients=st.get("max_clients"), version=st.get("version"))
 
 
@@ -296,13 +296,27 @@ def scan(out: Path, log=print, workers: int = 40) -> list[dict]:
     return uniq
 
 
+def clean_name(s: str, fallback: str = "") -> str:
+    """Название приёмника без HTML: некоторые владельцы пишут туда разметку."""
+    import html
+    t = re.sub(r"<[^>]*>?", " ", s or "")
+    t = re.sub(r"\s+", " ", html.unescape(t)).strip(" -|·,;")
+    return t[:80] or fallback
+
+
 def load(path: Path) -> list[dict]:
+    cfgs = None
     if path.exists():
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            cfgs = json.loads(path.read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001
-            pass
-    return [dict(b) for b in BUILTIN]
+            cfgs = None
+    if cfgs is None:
+        cfgs = [dict(b) for b in BUILTIN]
+    for c in cfgs:
+        if "<" in (c.get("name") or "") or "&" in (c.get("name") or ""):
+            c["name"] = clean_name(c["name"], urlsplit(c["url"]).netloc)
+    return cfgs
 
 
 def dist_km(a, b) -> float:
