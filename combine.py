@@ -1,7 +1,10 @@
 """Склейка одной и той же картинки, принятой несколькими приёмниками.
 
 МКС передаёт одну картинку, а приёмники слышат её кусками и с разным
-качеством. Каждую строку берём оттуда, где она принята лучше.
+качеством. Каждая строка — среднее по всем приёмникам, где она принята
+не сильно хуже лучшего, с весом по качеству (q²): шум у разных приёмников
+независимый, и при N сопоставимых приёмах он падает примерно в √N раз.
+Строки, которые явно не похожи на остальные (сбой, щелчок), в среднее не идут.
 
 Совмещение:
   1. по времени на часах: строка 0 каждой картинки известна с точностью
@@ -16,6 +19,10 @@ from pathlib import Path
 import numpy as np
 
 from robot36 import LINE, LINES, save_png
+
+Q_MIN = 0.15          # строки хуже этого вообще не используются
+KEEP = 0.6            # в среднее идут строки не хуже KEEP × лучшей по этой строке
+OUTLIER = 2.5         # строка отбрасывается, если отличается от среднего сильнее OUTLIER × медианы
 
 GROUP_S = 25.0        # картинки, начавшиеся в пределах этого времени, — одна передача
 SEARCH_LINES = 45     # насколько строк уточнять сдвиг по содержимому (задержки сети до ~6 с)
@@ -86,16 +93,56 @@ def group(records: list[dict]) -> list[list[dict]]:
     return groups
 
 
+def merge(members, fill=None):
+    """Средневзвешенная картинка из совмещённых кусков.
+
+    members: [(запись, сдвиг)], строка n записи = строка n+сдвиг результата.
+    fill: картинка, из которой берутся строки, не принятые никем (повторы при провалах).
+    Возвращает (rgb, лучший источник каждой строки, число усреднённых, качество строки).
+    """
+    K = len(members)
+    A = np.zeros((K, LINES) + members[0][0]["rgb"].shape[1:], np.float32)
+    Q = np.zeros((K, LINES), np.float32)
+    n = np.arange(LINES)
+    for k, (r, s) in enumerate(members):
+        m = n + s
+        sel = (m >= 0) & (m < LINES) & (np.asarray(r["q"]) > Q_MIN)
+        A[k, m[sel]] = r["rgb"][n[sel]]
+        Q[k, m[sel]] = np.asarray(r["q"])[n[sel]]
+    qmax = Q.max(0)
+    W = np.where((Q > 0) & (Q >= KEEP * qmax[None]), Q * Q, 0.0)
+
+    def wmean(W):
+        return (A * W[:, :, None, None]).sum(0) / np.maximum(W.sum(0), 1e-9)[:, None, None]
+
+    mean = wmean(W)
+    cnt = (W > 0).sum(0)
+    if K >= 3:
+        d = np.abs(A - mean[None]).mean((2, 3))
+        dm = np.where(W > 0, d, np.nan)
+        with np.errstate(all="ignore"):
+            med = np.nanmedian(dm, axis=0)
+        bad = (W > 0) & (cnt[None] >= 3) & (d > np.maximum(10.0, OUTLIER * np.nan_to_num(med))[None])
+        if bad.any():
+            W = np.where(bad, 0.0, W)
+            mean = wmean(W)
+            cnt = (W > 0).sum(0)
+    out = np.clip(mean + 0.5, 0, 255).astype(np.uint8)
+    if fill is not None:
+        out[cnt == 0] = fill[cnt == 0]
+    src = np.where(qmax > 0, Q.argmax(0), -1)
+    # качество усреднённой строки: шум падает как √(Σq²)/max — оцениваем «эквивалентное» q
+    q_out = np.minimum(1.0, np.sqrt(W.sum(0)))
+    return out, src, cnt, q_out
+
+
 def combine(group_recs: list[dict]):
     """Вернуть (rgb, откуда какая строка, описание) или None, если склеивать нечего."""
     if len(group_recs) < 2:
         return None
     # база: картинка с найденным началом, иначе самая полная
     base = max(group_recs, key=lambda r: (r["start"], float((r["q"] > 0.15).sum())))
-    out = base["rgb"].copy()
-    qbest = base["q"].copy()
-    src = np.full(LINES, -1, int)
-    src[base["q"] > 0] = 0
+    members = [(base, 0)]
     used = [base]
     notes = []
     for r in group_recs:
@@ -112,17 +159,15 @@ def combine(group_recs: list[dict]):
         if c < MIN_CORR or mg < MIN_MARGIN:
             notes.append(f"{r['rx']}: не уверен в совмещении (корр. {c:.2f}), не склеиваю")
             continue
-        k = len(used)
         used.append(r)
+        members.append((r, s))
         notes.append(f"{r['rx']}: сдвиг {s:+d} строк, корр. {c:.2f}")
-        for n in range(LINES):
-            m = n + s
-            if 0 <= m < LINES and r["q"][n] > qbest[m] + 0.05:
-                out[m] = r["rgb"][n]
-                qbest[m] = r["q"][n]
-                src[m] = k
     if len(used) < 2:
         return None, None, used, notes
+    out, src, cnt, _ = merge(members, fill=base["rgb"])
+    avg = int((cnt >= 2).sum())
+    if avg:
+        notes.append(f"усреднено строк: {avg}")
     return out, src, used, notes
 
 

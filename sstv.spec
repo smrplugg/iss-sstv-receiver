@@ -18,7 +18,7 @@ a = Analysis(
     ["sstv.pyw"],
     pathex=["."],
     datas=datas,
-    hiddenimports=["qt_app", "engine", "iss_sstv", "robot36", "combine", "redecode", "scan", "tle", "about", "paths",
+    hiddenimports=["qt_app", "engine", "iss_sstv", "robot36", "combine", "redecode", "stack", "scan", "tle", "about", "paths",
                    "PyQt5.QtMultimedia", "PyQt5.QtSvg", "scipy.signal", "scipy.ndimage"],
     excludes=["tkinter", "pkg_resources", "setuptools", "matplotlib", "IPython", "pytest", "PyQt5.QtWebEngineWidgets", "PyQt5.QtWebEngineCore"],
     noarchive=False,

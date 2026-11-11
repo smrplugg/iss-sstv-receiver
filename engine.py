@@ -370,6 +370,25 @@ class Engine(threading.Thread):
                                        short="склейка", sat=self.orbit.name, norad=self.orbit.norad,
                                        kind="combined")
         self._save_index()
+        if not test and records:
+            self.restack()
+
+    def restack(self):
+        """Пересобрать стопки повторов в фоне — сеансу и интерфейсу это не мешает."""
+        if getattr(self, "_stacking", False):
+            return
+        self._stacking = True
+
+        def work():
+            try:
+                import stack
+                stack.stack_tree(self.out, log=self.log)
+                self.gallery_ver += 1
+            except Exception as e:  # noqa: BLE001
+                self.log(f"Стопки не собраны: {e}")
+            finally:
+                self._stacking = False
+        threading.Thread(target=work, daemon=True).start()
 
     def tick(self, rxs=None):
         self._process_cmds()
@@ -705,6 +724,7 @@ class Engine(threading.Thread):
                 import redecode
                 redecode.redecode_tree(self.out, log=self.log, skip=("test", "check", "best"))
                 self.gallery_ver += 1
+                self.restack()
             elif k == "test":
                 urls = set(c.get("urls") or [])
                 secs = int(c.get("seconds") or 60)
@@ -968,4 +988,19 @@ class Engine(threading.Thread):
                                 rx=rx, short=short, name=name, sat=m.get("sat") or "ISS (ZARYA)",
                                 norad=m.get("norad") or 25544, q=m.get("q"), lines=m.get("lines"),
                                 el=m.get("el"), kind=kind, combined=rx == "combined"))
+        sd = self.out / "stack"
+        if sd.is_dir():
+            import stack
+            for p in sorted(sd.glob("stack_*.png")):
+                try:
+                    meta = json.loads(p.with_suffix(".json").read_text(encoding="utf-8"))
+                except Exception:  # noqa: BLE001
+                    meta = {}
+                n, ns = meta.get("count") or 0, meta.get("sessions") or 0
+                res.append(dict(path=self._rel(p), session="stack", t=p.stat().st_mtime, t_known=True,
+                                rx="stack", short=f"стопка ×{n}",
+                                name=f"стопка: {n} {stack.plural(n, 'приём', 'приёма', 'приёмов')} из {ns} "
+                                     f"{stack.plural(ns, 'пролёта', 'пролётов', 'пролётов')}",
+                                sat="ISS (ZARYA)", norad=25544,
+                                q=None, lines=meta.get("lines"), el=None, kind="stacked", combined=True))
         return res

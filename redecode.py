@@ -77,6 +77,7 @@ def redecode_session(sdir: Path, log=print, mtimes: dict | None = None, min_qual
             r.save_png(rgb, p)
             made.append((ch["quality"], ng, p))
             w0 = t_start + ch["starts"][0] / r.FS
+            r.save_meta(p, ch["line_q"], bool(ch.get("lead")), w0, ng, ch["quality"])
             records.append(dict(rgb=rgb, q=ch["line_q"], w0=w0, start=bool(ch.get("lead")),
                                 anchor=anc, lines=ng, rx=rx[:24], path=p))
             log(f"  {rx}{tag}: картинка {k}: {ng} строк, качество {ch['quality']:.2f}"

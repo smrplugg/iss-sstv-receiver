@@ -437,59 +437,97 @@ class MapWidget(QtWidgets.QWidget):
 
     # подложка (суша, границы, сетка) рисуется один раз в картинку с запасом по краям;
     # при перетаскивании и зуме только сдвигается/масштабируется, перерисовка — после паузы
-    def _render_base(self):
-        W, H = self.width(), self.height()
-        dpr = self.devicePixelRatioF()
+    # или когда запас по краю кончается. Суша заливается без сглаживания (сглаженная
+    # заливка в 20–30 раз дороже, а край всё равно закрывает сглаженная линия берега):
+    # так перерисовка занимает ~20 мс, и карта не замирает при ведении спутника.
+    def _base_params(self):
+        return dict(u=self.u, v=self.v, s=self.s, W=self.width(), H=self.height(),
+                    dpr=self.devicePixelRatioF())
+
+    @staticmethod
+    def _draw_base(u, v, s, W, H, dpr):
         W2, H2 = W * 2, H * 2
-        img = QtGui.QImage(int(W2 * dpr), int(H2 * dpr), QtGui.QImage.Format_ARGB32_Premultiplied)
+        img = QtGui.QImage(max(1, int(W2 * dpr)), max(1, int(H2 * dpr)), QtGui.QImage.Format_ARGB32_Premultiplied)
         img.setDevicePixelRatio(dpr)
         img.fill(Q["sea"])
         p = QtGui.QPainter(img)
-        p.setRenderHint(QtGui.QPainter.Antialiasing)
 
         def cpen(col, w=1.0):
             pen = QtGui.QPen(QtGui.QColor(col), w)
             pen.setCosmetic(True)
             return pen
-        uL, uR = self.u - W2 / 2 / self.s, self.u + W2 / 2 / self.s
+        uL, uR = u - W2 / 2 / s, u + W2 / 2 / s
+        vT, vB = v - H2 / 2 / s, v + H2 / 2 / s
+        clip = QtCore.QRectF(0, vT, 1, vB - vT)
         for k in range(math.floor(uL) - 1, math.ceil(uR) + 1):
             if not (k + 1 > uL and k < uR):
                 continue
-            ox = (k - self.u) * self.s + W2 / 2
-            oy = -self.v * self.s + H2 / 2
-            p.setTransform(QtGui.QTransform(self.s, 0, 0, self.s, ox, oy))
+            ox = (k - u) * s + W2 / 2
+            oy = -v * s + H2 / 2
+            p.setTransform(QtGui.QTransform(s, 0, 0, s, ox, oy))
+            # видимая часть этой копии мира в её координатах: остальное не обсчитываем
+            vis = clip.intersected(QtCore.QRectF(uL - k, vT, uR - uL, vB - vT))
+            p.setClipRect(vis)
+            p.setRenderHint(QtGui.QPainter.Antialiasing, True)
             p.strokePath(World.grat, cpen(C["grat"]))
+            p.setRenderHint(QtGui.QPainter.Antialiasing, False)
             p.fillPath(World.land, Q["land"])
             p.fillPath(World.lakes, Q["sea"])
+            p.setRenderHint(QtGui.QPainter.Antialiasing, True)
             p.strokePath(World.land, cpen(C["coast"], 0.8))
-            if self.s > W * 1.6:
+            if s > W * 1.6:
                 p.strokePath(World.borders, cpen(C["border"], 0.7))
         p.end()
-        self._base = (img, self.u, self.v, self.s, W, H)
+        return img
+
+    def _render_base(self):
+        """Сразу, в главном потоке — только когда показывать нечего."""
+        pr = self._base_params()
+        self._base = (self._draw_base(**pr), pr["u"], pr["v"], pr["s"], pr["W"], pr["H"], pr["dpr"])
+
+    def _render_base_async(self):
+        """Перерисовать на следующем витке цикла событий (не внутри paintEvent)."""
+        if getattr(self, "_base_pending", False):
+            return
+        self._base_pending = True
+
+        def go():
+            self._base_pending = False
+            self._render_base()
+            self.update()
+        QtCore.QTimer.singleShot(0, go)
 
     def _base_timer(self):
         if not hasattr(self, "_bt"):
             self._bt = QtCore.QTimer(self, singleShot=True, interval=140)
-            self._bt.timeout.connect(lambda: (self._render_base(), self.update()))
+            self._bt.timeout.connect(self._render_base_async)
         self._bt.start()
+
+    def showEvent(self, e):  # noqa: N802
+        # окно могло поменять размер или масштаб экрана, пока карта была скрыта
+        self._base = None
+        super().showEvent(e)
 
     def paintEvent(self, e):  # noqa: N802
         if not self.s:
             self.home()
         W, H = self.width(), self.height()
         b = getattr(self, "_base", None)
-        if b is None or b[4] != W or b[5] != H:
+        if b is None or b[4] != W or b[5] != H or b[6] != self.devicePixelRatioF():
             self._render_base()
             b = self._base
         img, bu, bv, bs = b[:4]
         du = self.u - bu
         du -= round(du)                       # перенос через линию перемены дат
+        dx, dy = abs(du * self.s), abs((self.v - bv) * self.s)
         if bs != self.s:
             self._base_timer()
-        elif abs(du * self.s) > W / 3 or abs((self.v - bv) * self.s) > H / 3:
-            self._render_base()               # ушли к краю запаса — перерисовать сразу
+        elif dx > W * 0.45 or dy > H * 0.45:
+            self._render_base()               # запас кончился, фон не успел — рисуем сразу
             img, bu, bv, bs = self._base[:4]
             du = 0.0
+        elif dx > W / 5 or dy > H / 5:
+            self._render_base_async()         # заранее, пока до края запаса далеко
         elif (bu, bv) != (self.u, self.v) and not self.follow:
             self._base_timer()
         k = self.s / bs
@@ -1734,7 +1772,8 @@ class Main(QtWidgets.QMainWindow):
         v.setContentsMargins(14, 12, 14, 8)
         row = QtWidgets.QHBoxLayout()
         self.gal_btns = QtWidgets.QButtonGroup(self)
-        for k, t in (("best", "лучшее"), ("all", "все"), ("live", "в эфире"), ("redecoded", "пересборка"), ("combined", "склейки")):
+        for k, t in (("best", "лучшее"), ("all", "все"), ("live", "в эфире"), ("redecoded", "пересборка"),
+                     ("combined", "склейки"), ("stacked", "стопки")):
             b = QtWidgets.QPushButton(t)
             b.setCheckable(True)
             b.setChecked(k == self.gal_kind)
@@ -2658,8 +2697,8 @@ class Main(QtWidgets.QMainWindow):
 
     def _redecode(self):
         if QtWidgets.QMessageBox.question(
-                self, "Пересборка", "Пересобрать все записи нынешним декодером? Это займёт несколько минут; "
-                "старые картинки не удаляются.") == QtWidgets.QMessageBox.Yes:
+                self, "Пересборка", "Пересобрать все записи нынешним декодером и сложить стопки повторов? "
+                "Это займёт несколько минут; старые картинки не удаляются.") == QtWidgets.QMessageBox.Yes:
             self.cmd(dict(cmd="redecode"))
 
     def show_report(self, rep):
@@ -2721,7 +2760,8 @@ class Main(QtWidgets.QMainWindow):
         k = self.gal_kind
         if k == "best":
             red = {g["session"] for g in L if g["kind"] == "redecoded"}
-            L = [g for g in L if g["kind"] == "combined" or (g["kind"] == "redecoded" if g["session"] in red else g["kind"] == "live")]
+            L = [g for g in L if g["kind"] in ("combined", "stacked")
+                 or (g["kind"] == "redecoded" if g["session"] in red else g["kind"] == "live")]
         elif k != "all":
             L = [g for g in L if g["kind"] == k]
         sat = self.gal_sat.currentData()
@@ -2753,7 +2793,8 @@ class Main(QtWidgets.QMainWindow):
                         t = datetime.strptime(g["session"][:13], "%Y%m%d_%H%M").timestamp()
                         txt = f"Сеанс <b>{wd(t)} {dm(t)} {tm(t)}</b> · {esc(g['sat'])} · снимков {n}"
                     except ValueError:
-                        txt = esc(g["session"])
+                        txt = (f"<b>Стопки</b> · одна и та же картинка, сложенная из многих пролётов · {n}"
+                               if g["session"] == "stack" else esc(g["session"]))
                     rep_ = self.reports.get(g["session"])
                     hrow = QtWidgets.QHBoxLayout()
                     hrow.setContentsMargins(0, 12, 0, 2)
@@ -2778,7 +2819,7 @@ class Main(QtWidgets.QMainWindow):
             b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
             b.setIcon(QtGui.QIcon(self.thumb(g["path"])))
             b.setIconSize(QtCore.QSize(176, 132))
-            kind = {"combined": "склейка", "redecoded": "пересборка"}.get(g["kind"], "в эфире")
+            kind = {"combined": "склейка", "redecoded": "пересборка", "stacked": "стопка"}.get(g["kind"], "в эфире")
             tt = tm(g["t"], True) if g["t_known"] else f"{dm(g['t'])} {tm(g['t'])}"
             qq = f" · кач. {round(g['q'] * 100)}" if g.get("q") is not None else ""
             b.setText(f"{g['short'][:22]}\n{tt}{qq}\n{kind}" + (f" · {g['el']:.0f}°" if g.get("el") is not None else ""))

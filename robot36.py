@@ -426,6 +426,28 @@ def save_png(rgb, path: Path):
     Image.fromarray(rgb).resize((WIDTH * 2, LINES * 2), Image.NEAREST).save(path)
 
 
+def save_meta(path: Path, q, start: bool, w0, lines: int, quality: float | None = None):
+    """Рядом с картинкой — качество каждой строки: по нему склейка и стопки решают,
+    какой строке сколько доверять."""
+    import json
+    try:
+        Path(path).with_suffix(".json").write_text(json.dumps(dict(
+            q=[round(float(v), 3) for v in q], start=bool(start), w0=w0, lines=int(lines),
+            quality=None if quality is None else round(float(quality), 3))), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def load_meta(path: Path):
+    import json
+    try:
+        d = json.loads(Path(path).with_suffix(".json").read_text(encoding="utf-8"))
+        d["q"] = np.asarray(d["q"], np.float32)
+        return d if len(d["q"]) == LINES else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def to_fs(x: np.ndarray, fs_in: int) -> np.ndarray:
     from scipy.signal import resample_poly
     if fs_in == FS:
@@ -577,6 +599,8 @@ class LiveDecoder:
             save_png(rgb, p)
             self.saved.append(p)
             st = ch["starts"]
+            save_meta(p, ch["line_q"], bool(ch.get("lead")),
+                      self.wall(st[0] + lo) if len(st) else None, ng, ch["quality"])
             self.records.append(dict(path=p, rgb=rgb, q=ch["line_q"].copy(),
                                      w0=self.wall(st[0] + lo) if len(st) else None,
                                      start=bool(ch.get("lead")), anchor=anc, lines=ng))
