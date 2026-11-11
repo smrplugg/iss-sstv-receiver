@@ -1,0 +1,20 @@
+# данные и настройки конкретного компьютера
+sstv_out/
+settings.json
+ui_state.json
+check.json
+tle_cache.json
+receivers_user.json
+.ui_profile/
+_mtimes.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# сборка exe
+build/
+dist/
+rules_accepted.txt
