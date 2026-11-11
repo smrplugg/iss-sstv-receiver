@@ -469,8 +469,7 @@ class Rx:
     def start(self, browser, outdir: Path):
         self.reset()
         self.starts += 1
-        self.outdir = outdir / self.key
-        self.outdir.mkdir(parents=True, exist_ok=True)
+        self.outdir = outdir / self.key     # папка создаётся, когда пойдёт звук — без пустых папок
         log(f"{self.short}: открываю {self.cfg['name']} …")
         self.open(browser)
         self.active = True
@@ -497,6 +496,7 @@ class Rx:
         for a, rate in self.take():
             if self.dec is None:
                 wname = "audio.wav" if self.starts <= 1 else f"audio_{self.starts}.wav"
+                self.outdir.mkdir(parents=True, exist_ok=True)
                 # пишем уже пересчитанный в 12 кГц звук: выше 6 кГц у приёмников ничего нет,
                 # а файлы вчетверо меньше
                 self.wav = wave.open(str(self.outdir / wname), "wb")
@@ -544,6 +544,7 @@ class Rx:
         elif silent > 8 and time.time() - self.opened_at > 15:
             self.reloads += 1
             log(f"{self.short}: звук пропал на {silent:.0f} с — переоткрываю страницу (раз {self.reloads}).")
+            self.last_sound = time.time()       # чтобы не повторять, пока страница переоткрывается
             return "reload"
         if self.wav is None and time.time() - self.opened_at > 25 and not self.warned:
             self.warned = True
@@ -1035,7 +1036,9 @@ def run_check(rxs: list[Rx], args, outroot: Path, cpath: Path, ctl=None):
                     time.sleep(0.5)
                 for rx in live:
                     try:
-                        rx.step(datetime.now(timezone.utc), True)
+                        if rx.step(datetime.now(timezone.utc), True) == "reload":
+                            results[rx.cfg["url"]] = dict(ok=False, why="звук пропадает или одна тишина")
+                            continue
                         if rx.state == "running" and rx.got_sound and time.time() - rx.opened_at > 3:
                             results[rx.cfg["url"]] = dict(ok=True, why="")
                     except Exception as e:  # noqa: BLE001
