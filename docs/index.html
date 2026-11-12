@@ -1,0 +1,1641 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>МКС SSTV — пульт пролёта</title>
+<style>
+:root{
+  --bg:#0b1020; --panel:#141b31; --panel2:#1b2342; --line:#2a3560;
+  --tx:#e8ecff; --mut:#8a93b8; --acc:#ffb84d; --acc2:#4dd2ff; --good:#5be37b; --bad:#ff6b7a;
+  --mono:"SF Mono",Consolas,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,Segoe UI,Roboto,sans-serif;overscroll-behavior:none}
+#app{max-width:560px;margin:0 auto;padding:10px 12px 90px}
+header{display:flex;align-items:baseline;gap:10px;padding:4px 2px 10px}
+header h1{font-size:17px;letter-spacing:.4px}
+header .sub{color:var(--mut);font-size:12px}
+.chip{font:12px var(--mono);background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:2px 10px;color:var(--acc2)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.card h2{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:8px}
+.big{font:700 44px/1 var(--mono);letter-spacing:1px}
+.freq{font:700 54px/1 var(--mono);color:var(--acc);text-align:center;padding:6px 0 2px}
+.freq small{font-size:22px;color:var(--mut)}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between}
+.col3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center}
+.kv .v{font:600 22px var(--mono)}
+.kv .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:1px}
+.mut{color:var(--mut)} .accent{color:var(--acc)} .good{color:var(--good)} .bad{color:var(--bad)} .cyan{color:var(--acc2)}
+button{background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:10px;padding:10px 14px;font-size:15px;cursor:pointer}
+button.primary{background:#2a3c7a;border-color:#3d55ad}
+button.rec{background:#7a2a35;border-color:#ad3d4d}
+button:disabled{opacity:.45}
+button.small{padding:5px 10px;font-size:13px;border-radius:8px}
+input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:8px;padding:8px;font-size:14px;width:100%}
+textarea{font:12px var(--mono)}
+canvas{display:block;width:100%;border-radius:10px;background:#0a0f1e}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:rgba(13,18,36,.97);border-top:1px solid var(--line);backdrop-filter:blur(8px);z-index:50}
+nav button{flex:1;background:none;border:none;border-radius:0;color:var(--mut);font-size:11.5px;padding:9px 0 max(9px, env(safe-area-inset-bottom))}
+nav button .ic{display:block;font-size:19px;margin-bottom:1px}
+nav button.on{color:var(--acc)}
+.tab{display:none}.tab.on{display:block}
+.bar{height:10px;background:var(--panel2);border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,#2a7a4f,var(--good));width:0%;transition:width .4s}
+.gal{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gal .im{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:6px}
+.gal canvas{image-rendering:pixelated}
+.gal .cap{font:11px var(--mono);color:var(--mut);margin-top:4px;display:flex;justify-content:space-between;align-items:center}
+.passlist{font:13px var(--mono)}
+.passlist .p{display:flex;gap:8px;justify-content:space-between;padding:8px 6px;border-bottom:1px solid var(--line)}
+.passlist .p.now{background:#20305e;border-radius:8px}
+.passlist .el{min-width:52px;text-align:right}
+.note{font-size:12.5px;color:var(--mut);margin-top:6px}
+.setrow{margin-bottom:12px}
+.setrow label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px;text-transform:uppercase;letter-spacing:.8px}
+.presets{display:flex;gap:8px;margin-top:6px}
+.ladder{display:flex;gap:6px;justify-content:center;margin:4px 0 2px;font:13px var(--mono)}
+.ladder span{padding:3px 8px;border-radius:8px;border:1px solid var(--line);color:var(--mut)}
+.ladder span.on{background:#5a4210;border-color:var(--acc);color:var(--acc);font-weight:700}
+.toggle{display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:8px}
+.toggle input{width:auto}
+#toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#20305e;border:1px solid #3d55ad;border-radius:10px;padding:8px 16px;font-size:13.5px;z-index:99;display:none;max-width:90%}
+.statline{font:12px var(--mono);color:var(--mut);display:flex;gap:12px;flex-wrap:wrap}
+a{color:var(--acc2)}
+.arrow{font-size:34px;display:inline-block;transition:transform .2s}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <h1>МКС&nbsp;·&nbsp;SSTV</h1>
+  <span class="chip" id="chipFreq">437.550</span>
+  <span class="sub" id="chipTle">TLE…</span>
+</header>
+
+<!-- ПРОЛЁТ -->
+<div class="tab on" id="tab-pass">
+  <div class="card" id="cardCountdown">
+    <h2 id="cdTitle">до пролёта</h2>
+    <div class="big" id="cdBig">—:—:—</div>
+    <div class="note" id="cdNote">считаю орбиту…</div>
+  </div>
+
+  <div class="card">
+    <h2>набери на рации</h2>
+    <div class="freq" id="dialFreq">437.550</div>
+    <div class="ladder" id="ladder"></div>
+    <div class="row" style="justify-content:center;gap:16px;margin-top:4px">
+      <span class="mut" style="font:13px var(--mono)" id="dopExact">доплер +0.0 кГц</span>
+      <span class="cyan" style="font:13px var(--mono)" id="dialNext"></span>
+    </div>
+    <div class="toggle" style="justify-content:center;margin-top:8px">
+      <input type="checkbox" id="beepOnSwitch" checked><label for="beepOnSwitch" style="margin:0;font-size:13px" class="mut">пикать при смене канала</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="col3">
+      <div class="kv"><div class="v cyan" id="azV">—</div><div class="k">азимут</div></div>
+      <div class="kv"><div class="v cyan" id="elV">—</div><div class="k">высота</div></div>
+      <div class="kv"><div class="v" id="rngV">—</div><div class="k">даль, км</div></div>
+    </div>
+    <div class="row" style="margin-top:10px;gap:14px">
+      <canvas id="polar" width="340" height="340" style="max-width:220px;margin:0 auto"></canvas>
+      <div style="text-align:center;min-width:90px">
+        <div class="arrow" id="cmpArrow" style="display:none">⬆</div>
+        <button class="small" id="cmpBtn">компас</button>
+        <div class="note" id="cmpNote"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>приём</h2>
+    <div class="row">
+      <button class="primary" id="micBtn">▶ слушать микрофон</button>
+      <span class="chip" id="recTime" style="display:none">0:00</span>
+    </div>
+    <canvas id="wf" width="512" height="90" style="margin-top:10px"></canvas>
+    <div style="margin:8px 0 4px" class="bar"><i id="sigBar"></i></div>
+    <div class="statline"><span id="sigTxt">сигнал: —</span><span id="decTxt"></span><span id="cpuTxt"></span></div>
+    <canvas id="partial" width="320" height="240" style="margin-top:10px;display:none;image-rendering:pixelated"></canvas>
+    <div class="row" style="margin-top:10px;gap:8px">
+      <label class="mut" style="font-size:13px;white-space:nowrap">или из записи:</label>
+      <input type="file" id="wavIn" accept=".wav,audio/wav,audio/x-wav,audio/*" style="font-size:12px">
+    </div>
+    <div class="note" id="wavInNote"></div>
+  </div>
+</div>
+
+<!-- КАРТА -->
+<div class="tab" id="tab-map">
+  <div class="card">
+    <h2>трасса МКС</h2>
+    <canvas id="map" width="1024" height="512"></canvas>
+    <div class="note" id="mapNote"></div>
+  </div>
+</div>
+
+<!-- РАСПИСАНИЕ -->
+<div class="tab" id="tab-sched">
+  <div class="card">
+    <h2>пролёты · 72 часа · <span id="schedMinEl"></span></h2>
+    <div class="passlist" id="passList">считаю…</div>
+    <div class="note">Времена местные. ⭑ — пролёт выше 40°, самые громкие.</div>
+  </div>
+</div>
+
+<!-- ГАЛЕРЕЯ -->
+<div class="tab" id="tab-gal">
+  <div class="card">
+    <h2>принятые картинки</h2>
+    <div class="gal" id="gal"></div>
+    <div class="note" id="galNote">Пока пусто. Картинки появятся сами во время приёма.</div>
+    <div class="row" style="margin-top:10px">
+      <button class="small" id="wavBtn" disabled>⬇ записанный WAV</button>
+      <span class="note">Запись идёт всё время, пока слушает микрофон.</span>
+    </div>
+  </div>
+</div>
+
+<!-- НАСТРОЙКИ -->
+<div class="tab" id="tab-set">
+  <div class="card">
+    <h2>частота</h2>
+    <div class="setrow">
+      <input type="number" step="0.001" id="setFreq">
+      <div class="presets">
+        <button class="small" data-f="437.550">437.550 · Robot 36 (серия 35)</button>
+        <button class="small" data-f="145.800">145.800 · PD120</button>
+      </div>
+      <div class="note">Декодер на странице понимает Robot 36. На 145.800 страница всё равно посчитает доплер (там он мал — FM справляется сам).</div>
+    </div>
+    <div class="setrow">
+      <label>шаг каналов рации, кГц</label>
+      <select id="setStep"><option value="5">5 (UV-5R)</option><option value="2.5">2.5</option><option value="0">точная частота, без лесенки</option></select>
+    </div>
+  </div>
+  <div class="card">
+    <h2>место наблюдения</h2>
+    <div class="setrow">
+      <div class="row" style="gap:8px">
+        <input id="setLat" type="number" step="0.0001" placeholder="широта">
+        <input id="setLon" type="number" step="0.0001" placeholder="долгота">
+      </div>
+      <div class="presets"><button class="small" id="gpsBtn">📍 взять с GPS телефона</button></div>
+      <div class="note" id="locNote"></div>
+    </div>
+    <div class="setrow">
+      <label>минимальная высота пролёта, °</label>
+      <input id="setMinEl" type="number" value="15" min="0" max="60">
+    </div>
+  </div>
+  <div class="card">
+    <h2>орбитальные элементы (TLE)</h2>
+    <div class="row">
+      <button class="small" id="tleBtn">обновить из сети</button>
+      <span class="note" id="tleAge"></span>
+    </div>
+    <textarea id="tleBox" rows="3" spellcheck="false" style="margin-top:8px"></textarea>
+    <div class="note">Можно вставить свой TLE (2 строки) и нажать «применить».</div>
+    <div class="presets"><button class="small" id="tleApply">применить вставленный</button></div>
+  </div>
+  <div class="card">
+    <h2>декодер</h2>
+    <div class="toggle"><input type="checkbox" id="setDenoise" checked><label style="margin:0">шумоподавление картинок</label></div>
+    <div class="toggle"><input type="checkbox" id="setWake" checked><label style="margin:0">не гасить экран во время приёма</label></div>
+    <div class="note">Совет: в настройках рации — WIDE, SQL 0, SAVE OFF, пищалки OFF. Телефон динамиком к рации, громкость трети хватает.</div>
+  </div>
+</div>
+</div>
+
+<nav>
+  <button class="on" data-tab="pass"><span class="ic">🛰</span>Пролёт</button>
+  <button data-tab="map"><span class="ic">🗺</span>Карта</button>
+  <button data-tab="sched"><span class="ic">🕑</span>Время</button>
+  <button data-tab="gal"><span class="ic">🖼</span>Фото</button>
+  <button data-tab="set"><span class="ic">⚙️</span>Ещё</button>
+</nav>
+<div id="toast"></div>
+
+<script>/*!
+ * satellite-js v5.0.0
+ * (c) 2013 Shashwat Kandadai and UCSC
+ * https://github.com/shashwatak/satellite-js
+ * License: MIT
+ */
+
+!function(o,t){"object"==typeof exports&&"undefined"!=typeof module?module.exports=t():"function"==typeof define&&define.amd?define(t):(o="undefined"!=typeof globalThis?globalThis:o||self).satellite=t()}(this,(function(){"use strict";var o=Math.PI,t=2*o,e=o/180,s=180/o,a=1440,n=398600.8,d=6378.135,r=60/Math.sqrt(650942.9922085947),i=d*r/60,c=1/r,h=.001082616,m=-253881e-11,l=-165597e-11,p=m/h,x=2/3;function g(o,t){for(var e=[31,o%4==0?29:28,31,30,31,30,31,31,30,31,30,31],s=Math.floor(t),a=1,n=0;s>n+e[a-1]&&a<12;)n+=e[a-1],a+=1;var d=a,r=s-n,i=24*(t-s),c=Math.floor(i);i=60*(i-c);var h=Math.floor(i);return{mon:d,day:r,hr:c,minute:h,sec:60*(i-h)}}function M(o,t,e,s,a,n){var d=arguments.length>6&&void 0!==arguments[6]?arguments[6]:0;return 367*o-Math.floor(7*(o+Math.floor((t+9)/12))*.25)+Math.floor(275*t/9)+e+1721013.5+((d/6e4+n/60+a)/60+s)/24}function f(o,t,e,s,a,n,d){if(o instanceof Date){var r=o;return M(r.getUTCFullYear(),r.getUTCMonth()+1,r.getUTCDate(),r.getUTCHours(),r.getUTCMinutes(),r.getUTCSeconds(),r.getUTCMilliseconds())}return M(o,t,e,s,a,n,d)}function u(e,s){var a,n,d,r,i,c,h,m,l,p,x,g,M,f,u,z,v,y,b=e.e3,q=e.ee2,w=e.peo,T=e.pgho,j=e.pho,E=e.pinco,F=e.plo,A=e.se2,C=e.se3,L=e.sgh2,S=e.sgh3,U=e.sgh4,D=e.sh2,I=e.sh3,R=e.si2,_=e.si3,k=e.sl2,O=e.sl3,P=e.sl4,Z=e.t,G=e.xgh2,H=e.xgh3,Y=e.xgh4,$=e.xh2,B=e.xh3,J=e.xi2,K=e.xi3,N=e.xl2,Q=e.xl3,V=e.xl4,W=e.zmol,X=e.zmos,oo=s.init,to=s.opsmode,eo=s.ep,so=s.inclp,ao=s.nodep,no=s.argpp,ro=s.mp;y=X+119459e-10*Z,"y"===oo&&(y=X),v=y+.0335*Math.sin(y);var io=A*(h=.5*(f=Math.sin(v))*f-.25)+C*(m=-.5*f*Math.cos(v)),co=R*h+_*m,ho=k*h+O*m+P*f,mo=L*h+S*m+U*f,lo=D*h+I*m;return y=W+.00015835218*Z,"y"===oo&&(y=W),v=y+.1098*Math.sin(y),l=io+(q*(h=.5*(f=Math.sin(v))*f-.25)+b*(m=-.5*f*Math.cos(v))),g=co+(J*h+K*m),M=ho+(N*h+Q*m+V*f),p=mo+(G*h+H*m+Y*f),x=lo+($*h+B*m),"n"===oo&&(M-=F,p-=T,x-=j,so+=g-=E,eo+=l-=w,r=Math.sin(so),d=Math.cos(so),so>=.2?(no+=p-=d*(x/=r),ao+=x,ro+=M):(a=r*(c=Math.sin(ao)),n=r*(i=Math.cos(ao)),a+=x*i+g*d*c,n+=-x*c+g*d*i,(ao%=t)<0&&"a"===to&&(ao+=t),u=ro+no+d*ao,u+=M+p-g*ao*r,z=ao,(ao=Math.atan2(a,n))<0&&"a"===to&&(ao+=t),Math.abs(z-ao)>o&&(ao<z?ao+=t:ao-=t),no=u-(ro+=M)-d*ao)),{ep:eo,inclp:so,nodep:ao,argpp:no,mp:ro}}function z(o){var s=(o-2451545)/36525,a=-62e-7*s*s*s+.093104*s*s+3164400184.812866*s+67310.54841;return(a=a*e/240%t)<0&&(a+=t),a}function v(){return(arguments.length<=0?void 0:arguments[0])instanceof Date||arguments.length>1?z(f.apply(void 0,arguments)):z.apply(void 0,arguments)}function y(e,s){var a,n,c,m,l,g,M,f,z,v,y,b,q,w,T,j,E,F,A,C,L,S,U,D,I,R;e.t=s,e.error=0;var _=e.mo+e.mdot*e.t,k=e.argpo+e.argpdot*e.t,O=e.nodeo+e.nodedot*e.t;f=k,C=_;var P=e.t*e.t;if(S=O+e.nodecf*P,j=1-e.cc1*e.t,E=e.bstar*e.cc4*e.t,F=e.t2cof*P,1!==e.isimp){g=e.omgcof*e.t;var Z=1+e.eta*Math.cos(_);C=_+(T=g+e.xmcof*(Z*Z*Z-e.delmo)),f=k-T,b=(y=P*e.t)*e.t,j=j-e.d2*P-e.d3*y-e.d4*b,E+=e.bstar*e.cc5*(Math.sin(C)-e.sinmao),F=F+e.t3cof*y+b*(e.t4cof+e.t*e.t5cof)}L=e.no;var G=e.ecco;if(A=e.inclo,"d"===e.method){q=e.t;var H=function(o){var e,s,a,n,d,r,i,c,h=o.irez,m=o.d2201,l=o.d2211,p=o.d3210,x=o.d3222,g=o.d4410,M=o.d4422,f=o.d5220,u=o.d5232,z=o.d5421,v=o.d5433,y=o.dedt,b=o.del1,q=o.del2,w=o.del3,T=o.didt,j=o.dmdt,E=o.dnodt,F=o.domdt,A=o.argpo,C=o.argpdot,L=o.t,S=o.tc,U=o.gsto,D=o.xfact,I=o.xlamo,R=o.no,_=o.atime,k=o.em,O=o.argpm,P=o.inclm,Z=o.xli,G=o.mm,H=o.xni,Y=o.nodem,$=o.nm,B=.13130908,J=2.8843198,K=.37448087,N=5.7686396,Q=.95240898,V=1.8014998,W=1.050833,X=4.4108898,oo=259200,to=0,eo=0,so=(U+.0043752690880113*S)%t;if(k+=y*L,P+=T*L,O+=F*L,Y+=E*L,G+=j*L,0!==h){(0===_||L*_<=0||Math.abs(L)<Math.abs(_))&&(_=0,H=R,Z=I),e=L>0?720:-720;for(var ao=381;381===ao;)2!==h?(i=b*Math.sin(Z-B)+q*Math.sin(2*(Z-J))+w*Math.sin(3*(Z-K)),d=H+D,r=b*Math.cos(Z-B)+2*q*Math.cos(2*(Z-J))+3*w*Math.cos(3*(Z-K)),r*=d):(a=(c=A+C*_)+c,s=Z+Z,i=m*Math.sin(a+Z-N)+l*Math.sin(Z-N)+p*Math.sin(c+Z-Q)+x*Math.sin(-c+Z-Q)+g*Math.sin(a+s-V)+M*Math.sin(s-V)+f*Math.sin(c+Z-W)+u*Math.sin(-c+Z-W)+z*Math.sin(c+s-X)+v*Math.sin(-c+s-X),d=H+D,r=m*Math.cos(a+Z-N)+l*Math.cos(Z-N)+p*Math.cos(c+Z-Q)+x*Math.cos(-c+Z-Q)+f*Math.cos(c+Z-W)+u*Math.cos(-c+Z-W)+2*(g*Math.cos(a+s-V)+M*Math.cos(s-V)+z*Math.cos(c+s-X)+v*Math.cos(-c+s-X)),r*=d),Math.abs(L-_)>=720?ao=381:(eo=L-_,ao=0),381===ao&&(Z+=d*e+i*oo,H+=i*e+r*oo,_+=e);$=H+i*eo+r*eo*eo*.5,n=Z+d*eo+i*eo*eo*.5,1!==h?(G=n-2*Y+2*so,to=$-R):(G=n-Y-O+so,to=$-R),$=R+to}return{atime:_,em:k,argpm:O,inclm:P,xli:Z,mm:G,xni:H,nodem:Y,dndt:to,nm:$}}({irez:e.irez,d2201:e.d2201,d2211:e.d2211,d3210:e.d3210,d3222:e.d3222,d4410:e.d4410,d4422:e.d4422,d5220:e.d5220,d5232:e.d5232,d5421:e.d5421,d5433:e.d5433,dedt:e.dedt,del1:e.del1,del2:e.del2,del3:e.del3,didt:e.didt,dmdt:e.dmdt,dnodt:e.dnodt,domdt:e.domdt,argpo:e.argpo,argpdot:e.argpdot,t:e.t,tc:q,gsto:e.gsto,xfact:e.xfact,xlamo:e.xlamo,no:e.no,atime:e.atime,em:G,argpm:f,inclm:A,xli:e.xli,mm:C,xni:e.xni,nodem:S,nm:L});G=H.em,f=H.argpm,A=H.inclm,C=H.mm,S=H.nodem,L=H.nm}if(L<=0)return e.error=2,[!1,!1];var Y=Math.pow(r/L,x)*j*j;if(L=r/Math.pow(Y,1.5),(G-=E)>=1||G<-.001)return e.error=1,[!1,!1];G<1e-6&&(G=1e-6),D=(C+=e.no*F)+f+S;var $=G;if(U=A,z=f%=t,R=S%=t,I=C=((D%=t)-f-S)%t,m=Math.sin(A),c=Math.cos(A),"d"===e.method){var B=u(e,{inclo:e.inclo,init:"n",ep:$,inclp:U,nodep:R,argpp:z,mp:I,opsmode:e.operationmode});if($=B.ep,R=B.nodep,z=B.argpp,I=B.mp,(U=B.inclp)<0&&(U=-U,R+=o,z-=o),$<0||$>1)return e.error=3,[!1,!1]}"d"===e.method&&(m=Math.sin(U),c=Math.cos(U),e.aycof=-.5*p*m,Math.abs(c+1)>15e-13?e.xlcof=-.25*p*m*(3+5*c)/(1+c):e.xlcof=-.25*p*m*(3+5*c)/15e-13);var J=$*Math.cos(z);T=1/(Y*(1-$*$));var K=$*Math.sin(z)+T*e.aycof,N=(I+z+R+T*e.xlcof*J-R)%t;M=N,w=9999.9;for(var Q=1;Math.abs(w)>=1e-12&&Q<=10;)n=Math.sin(M),w=(N-K*(a=Math.cos(M))+J*n-M)/(w=1-a*J-n*K),Math.abs(w)>=.95&&(w=w>0?.95:-.95),M+=w,Q+=1;var V=J*a+K*n,W=J*n-K*a,X=J*J+K*K,oo=Y*(1-X);if(oo<0)return e.error=4,[!1,!1];var to=Y*(1-V),eo=Math.sqrt(Y)*W/to,so=Math.sqrt(oo)/to,ao=Math.sqrt(1-X),no=Y/to*(n-K-J*(T=W/(1+ao))),ro=Y/to*(a-J+K*T);v=Math.atan2(no,ro);var io=(ro+ro)*no,co=1-2*no*no,ho=.5*h*(T=1/oo),mo=ho*T;"d"===e.method&&(l=c*c,e.con41=3*l-1,e.x1mth2=1-l,e.x7thm1=7*l-1);var lo=to*(1-1.5*mo*ao*e.con41)+.5*ho*e.x1mth2*co;if(lo<1)return e.error=6,{position:!1,velocity:!1};v-=.25*mo*e.x7thm1*io;var po=R+1.5*mo*c*io,xo=U+1.5*mo*c*m*co,go=eo-L*ho*e.x1mth2*io/r,Mo=so+L*ho*(e.x1mth2*co+1.5*e.con41)/r,fo=Math.sin(v),uo=Math.cos(v),zo=Math.sin(po),vo=Math.cos(po),yo=Math.sin(xo),bo=Math.cos(xo),qo=-zo*bo,wo=vo*bo,To=qo*fo+vo*uo,jo=wo*fo+zo*uo,Eo=yo*fo;return{position:{x:lo*To*d,y:lo*jo*d,z:lo*Eo*d},velocity:{x:(go*To+Mo*(qo*uo-vo*fo))*i,y:(go*jo+Mo*(wo*uo-zo*fo))*i,z:(go*Eo+Mo*(yo*uo))*i}}}function b(e,s){var a,n,i,m,g,M,f,z,b,q,w,T,j,E,F,A,C,L,S,U,D,I,R,_,k,O,P,Z,G,H,Y,$,B,J,K,N,Q,V,W,X,oo,to,eo,so,ao,no,ro,io,co,ho,mo,lo,po=s.opsmode,xo=s.satn,go=s.epoch,Mo=s.xbstar,fo=s.xecco,uo=s.xargpo,zo=s.xinclo,vo=s.xmo,yo=s.xno,bo=s.xnodeo;e.isimp=0,e.method="n",e.aycof=0,e.con41=0,e.cc1=0,e.cc4=0,e.cc5=0,e.d2=0,e.d3=0,e.d4=0,e.delmo=0,e.eta=0,e.argpdot=0,e.omgcof=0,e.sinmao=0,e.t=0,e.t2cof=0,e.t3cof=0,e.t4cof=0,e.t5cof=0,e.x1mth2=0,e.x7thm1=0,e.mdot=0,e.nodedot=0,e.xlcof=0,e.xmcof=0,e.nodecf=0,e.irez=0,e.d2201=0,e.d2211=0,e.d3210=0,e.d3222=0,e.d4410=0,e.d4422=0,e.d5220=0,e.d5232=0,e.d5421=0,e.d5433=0,e.dedt=0,e.del1=0,e.del2=0,e.del3=0,e.didt=0,e.dmdt=0,e.dnodt=0,e.domdt=0,e.e3=0,e.ee2=0,e.peo=0,e.pgho=0,e.pho=0,e.pinco=0,e.plo=0,e.se2=0,e.se3=0,e.sgh2=0,e.sgh3=0,e.sgh4=0,e.sh2=0,e.sh3=0,e.si2=0,e.si3=0,e.sl2=0,e.sl3=0,e.sl4=0,e.gsto=0,e.xfact=0,e.xgh2=0,e.xgh3=0,e.xgh4=0,e.xh2=0,e.xh3=0,e.xi2=0,e.xi3=0,e.xl2=0,e.xl3=0,e.xl4=0,e.xlamo=0,e.zmol=0,e.zmos=0,e.atime=0,e.xli=0,e.xni=0,e.bstar=Mo,e.ecco=fo,e.argpo=uo,e.inclo=zo,e.mo=vo,e.no=yo,e.nodeo=bo,e.operationmode=po;e.init="y",e.t=0;var qo=function(o){var e=o.ecco,s=o.epoch,a=o.inclo,n=o.opsmode,d=o.no,i=e*e,c=1-i,m=Math.sqrt(c),l=Math.cos(a),p=l*l,g=Math.pow(r/d,x),M=.75*h*(3*p-1)/(m*c),f=M/(g*g),u=g*(1-f*f-f*(1/3+134*f*f/81));d/=1+(f=M/(u*u));var z,y=Math.pow(r/d,x),b=Math.sin(a),q=y*c,w=1-5*p,T=-w-p-p,j=1/y,E=q*q,F=y*(1-e);if("a"===n){var A=s-7305,C=Math.floor(A+1e-8),L=.017202791694070362;(z=(1.7321343856509375+L*C+(L+t)*(A-C)+A*A*5075514194322695e-30)%t)<0&&(z+=t)}else z=v(s+2433281.5);return{no:d,method:"n",ainv:j,ao:y,con41:T,con42:w,cosio:l,cosio2:p,eccsq:i,omeosq:c,posq:E,rp:F,rteosq:m,sinio:b,gsto:z}}({satn:xo,ecco:e.ecco,epoch:go,inclo:e.inclo,no:e.no,method:e.method,opsmode:e.operationmode}),wo=qo.ao,To=qo.con42,jo=qo.cosio,Eo=qo.cosio2,Fo=qo.eccsq,Ao=qo.omeosq,Co=qo.posq,Lo=qo.rp,So=qo.rteosq,Uo=qo.sinio;if(e.no=qo.no,e.con41=qo.con41,e.gsto=qo.gsto,e.a=Math.pow(e.no*c,-2/3),e.alta=e.a*(1+e.ecco)-1,e.altp=e.a*(1-e.ecco)-1,e.error=0,Ao>=0||e.no>=0){if(e.isimp=0,Lo<1.034492841559484&&(e.isimp=1),_=1.0122292801892716,L=1.880279159015271e-9,(F=(Lo-1)*d)<156){_=F-78,F<98&&(_=20);var Do=(120-_)/d;L=Do*Do*Do*Do,_=_/d+1}A=1/Co,to=1/(wo-_),e.eta=wo*e.ecco*to,T=e.eta*e.eta,w=e.ecco*e.eta,C=Math.abs(1-T),m=(f=(M=L*Math.pow(to,4))/Math.pow(C,3.5))*e.no*(wo*(1+1.5*T+w*(4+T))+.375*h*to/C*e.con41*(8+3*T*(8+T))),e.cc1=e.bstar*m,g=0,e.ecco>1e-4&&(g=-2*M*to*p*e.no*Uo/e.ecco),e.x1mth2=1-Eo,e.cc4=2*e.no*f*wo*Ao*(e.eta*(2+.5*T)+e.ecco*(.5+2*T)-h*to/(wo*C)*(-3*e.con41*(1-2*w+T*(1.5-.5*w))+.75*e.x1mth2*(2*T-w*(1+T))*Math.cos(2*e.argpo))),e.cc5=2*f*wo*Ao*(1+2.75*(T+w)+w*T),z=Eo*Eo,X=.5*(W=1.5*h*A*e.no)*h*A,oo=-.46875*l*A*A*e.no,e.mdot=e.no+.5*W*So*e.con41+.0625*X*So*(13-78*Eo+137*z),e.argpdot=-.5*W*To+.0625*X*(7-114*Eo+395*z)+oo*(3-36*Eo+49*z),so=-W*jo,e.nodedot=so+(.5*X*(4-19*Eo)+2*oo*(3-7*Eo))*jo,eo=e.argpdot+e.nodedot,e.omgcof=e.bstar*g*Math.cos(e.argpo),e.xmcof=0,e.ecco>1e-4&&(e.xmcof=-x*M*e.bstar/w),e.nodecf=3.5*Ao*so*e.cc1,e.t2cof=1.5*e.cc1,Math.abs(jo+1)>15e-13?e.xlcof=-.25*p*Uo*(3+5*jo)/(1+jo):e.xlcof=-.25*p*Uo*(3+5*jo)/15e-13,e.aycof=-.5*p*Uo;var Io=1+e.eta*Math.cos(e.mo);if(e.delmo=Io*Io*Io,e.sinmao=Math.sin(e.mo),e.x7thm1=7*Eo-1,2*o/e.no>=225){e.method="d",e.isimp=1,0,j=e.inclo;var Ro=function(o){var e,s,a,n,d,r,i,c,h,m,l,p,x,g,M,f,u,z,v,y,b,q,w,T,j,E,F,A,C,L,S,U,D,I,R,_,k,O,P,Z,G,H,Y,$,B,J,K,N,Q,V,W,X,oo,to,eo,so,ao,no,ro,io,co,ho,mo,lo=o.epoch,po=o.ep,xo=o.argpp,go=o.tc,Mo=o.inclp,fo=o.nodep,uo=.01675,zo=.0549,vo=o.np,yo=po,bo=Math.sin(fo),qo=Math.cos(fo),wo=Math.sin(xo),To=Math.cos(xo),jo=Math.sin(Mo),Eo=Math.cos(Mo),Fo=yo*yo,Ao=1-Fo,Co=Math.sqrt(Ao),Lo=lo+18261.5+go/1440,So=(4.523602-.00092422029*Lo)%t,Uo=Math.sin(So),Do=Math.cos(So),Io=.91375164-.03568096*Do,Ro=Math.sqrt(1-Io*Io),_o=.089683511*Uo/Ro,ko=Math.sqrt(1-_o*_o),Oo=5.8351514+.001944368*Lo,Po=.39785416*Uo/Ro,Zo=ko*Do+.91744867*_o*Uo;Po=Math.atan2(Po,Zo),Po+=Oo-So;var Go=Math.cos(Po),Ho=Math.sin(Po);y=.1945905,b=-.98088458,T=.91744867,j=.39785416,q=qo,w=bo,l=29864797e-13;for(var Yo=1/vo,$o=0;$o<2;)eo=-6*(e=y*q+b*T*w)*(d=-jo*(i=-y*w+b*T*q)+Eo*(c=b*j))+Fo*(-24*(p=e*To+(s=Eo*i+jo*c)*wo)*(z=d*To)-6*(g=-e*wo+s*To)*(f=d*wo)),so=-6*(e*(r=-jo*(h=b*w+y*T*q)+Eo*(m=y*j))+(a=-b*q+y*T*w)*d)+Fo*(-24*((x=a*To+(n=Eo*h+jo*m)*wo)*z+p*(v=r*To))+-6*(g*(u=r*wo)+(M=-a*wo+n*To)*f)),ao=-6*a*r+Fo*(-24*x*v-6*M*u),no=6*s*d+Fo*(24*p*f-6*g*z),ro=6*(n*d+s*r)+Fo*(24*(x*f+p*u)-6*(M*z+g*v)),io=6*n*r+Fo*(24*x*u-6*M*v),X=(X=3*(e*e+s*s)+(co=12*p*p-3*g*g)*Fo)+X+Ao*co,oo=(oo=6*(e*a+s*n)+(ho=24*p*x-6*g*M)*Fo)+oo+Ao*ho,to=(to=3*(a*a+n*n)+(mo=12*x*x-3*M*M)*Fo)+to+Ao*mo,J=-.5*(K=l*Yo)/Co,B=-15*yo*(N=K*Co),Q=p*g+x*M,V=x*g+p*M,W=x*M-p*g,1===($o+=1)&&(E=B,F=J,A=K,C=N,L=Q,S=V,U=W,D=X,I=oo,R=to,_=eo,k=so,O=ao,P=no,Z=ro,G=io,H=co,Y=ho,$=mo,y=Go,b=Ho,T=Io,j=Ro,q=ko*qo+_o*bo,w=bo*ko-qo*_o,l=4.7968065e-7);return{snodm:bo,cnodm:qo,sinim:jo,cosim:Eo,sinomm:wo,cosomm:To,day:Lo,e3:2*B*W,ee2:2*B*V,em:yo,emsq:Fo,gam:Oo,peo:0,pgho:0,pho:0,pinco:0,plo:0,rtemsq:Co,se2:2*E*S,se3:2*E*U,sgh2:2*C*Y,sgh3:2*C*($-H),sgh4:-18*C*uo,sh2:-2*F*Z,sh3:-2*F*(G-P),si2:2*F*k,si3:2*F*(O-_),sl2:-2*A*I,sl3:-2*A*(R-D),sl4:-2*A*(-21-9*Fo)*uo,s1:B,s2:J,s3:K,s4:N,s5:Q,s6:V,s7:W,ss1:E,ss2:F,ss3:A,ss4:C,ss5:L,ss6:S,ss7:U,sz1:D,sz2:I,sz3:R,sz11:_,sz12:k,sz13:O,sz21:P,sz22:Z,sz23:G,sz31:H,sz32:Y,sz33:$,xgh2:2*N*ho,xgh3:2*N*(mo-co),xgh4:-18*N*zo,xh2:-2*J*ro,xh3:-2*J*(io-no),xi2:2*J*so,xi3:2*J*(ao-eo),xl2:-2*K*oo,xl3:-2*K*(to-X),xl4:-2*K*(-21-9*Fo)*zo,nm:vo,z1:X,z2:oo,z3:to,z11:eo,z12:so,z13:ao,z21:no,z22:ro,z23:io,z31:co,z32:ho,z33:mo,zmol:(.2299715*Lo-Oo+4.7199672)%t,zmos:(6.2565837+.017201977*Lo)%t}}({epoch:go,ep:e.ecco,argpp:e.argpo,tc:0,inclp:e.inclo,nodep:e.nodeo,np:e.no,e3:e.e3,ee2:e.ee2,peo:e.peo,pgho:e.pgho,pho:e.pho,pinco:e.pinco,plo:e.plo,se2:e.se2,se3:e.se3,sgh2:e.sgh2,sgh3:e.sgh3,sgh4:e.sgh4,sh2:e.sh2,sh3:e.sh3,si2:e.si2,si3:e.si3,sl2:e.sl2,sl3:e.sl3,sl4:e.sl4,xgh2:e.xgh2,xgh3:e.xgh3,xgh4:e.xgh4,xh2:e.xh2,xh3:e.xh3,xi2:e.xi2,xi3:e.xi3,xl2:e.xl2,xl3:e.xl3,xl4:e.xl4,zmol:e.zmol,zmos:e.zmos});e.e3=Ro.e3,e.ee2=Ro.ee2,e.peo=Ro.peo,e.pgho=Ro.pgho,e.pho=Ro.pho,e.pinco=Ro.pinco,e.plo=Ro.plo,e.se2=Ro.se2,e.se3=Ro.se3,e.sgh2=Ro.sgh2,e.sgh3=Ro.sgh3,e.sgh4=Ro.sgh4,e.sh2=Ro.sh2,e.sh3=Ro.sh3,e.si2=Ro.si2,e.si3=Ro.si3,e.sl2=Ro.sl2,e.sl3=Ro.sl3,e.sl4=Ro.sl4,n=Ro.sinim,a=Ro.cosim,b=Ro.em,q=Ro.emsq,S=Ro.s1,U=Ro.s2,D=Ro.s3,I=Ro.s4,R=Ro.s5,k=Ro.ss1,O=Ro.ss2,P=Ro.ss3,Z=Ro.ss4,G=Ro.ss5,H=Ro.sz1,Y=Ro.sz3,$=Ro.sz11,B=Ro.sz13,J=Ro.sz21,K=Ro.sz23,N=Ro.sz31,Q=Ro.sz33,e.xgh2=Ro.xgh2,e.xgh3=Ro.xgh3,e.xgh4=Ro.xgh4,e.xh2=Ro.xh2,e.xh3=Ro.xh3,e.xi2=Ro.xi2,e.xi3=Ro.xi3,e.xl2=Ro.xl2,e.xl3=Ro.xl3,e.xl4=Ro.xl4,e.zmol=Ro.zmol,e.zmos=Ro.zmos,E=Ro.nm,ao=Ro.z1,no=Ro.z3,ro=Ro.z11,io=Ro.z13,co=Ro.z21,ho=Ro.z23,mo=Ro.z31,lo=Ro.z33;var _o=u(e,{inclo:j,init:e.init,ep:e.ecco,inclp:e.inclo,nodep:e.nodeo,argpp:e.argpo,mp:e.mo,opsmode:e.operationmode});e.ecco=_o.ep,e.inclo=_o.inclp,e.nodeo=_o.nodep,e.argpo=_o.argpp,e.mo=_o.mp,0,0,0;var ko=function(e){var s,a,n,d,i,c,h,m,l,p,g,M,f,u,z,v,y,b=e.cosim,q=e.argpo,w=e.s1,T=e.s2,j=e.s3,E=e.s4,F=e.s5,A=e.sinim,C=e.ss1,L=e.ss2,S=e.ss3,U=e.ss4,D=e.ss5,I=e.sz1,R=e.sz3,_=e.sz11,k=e.sz13,O=e.sz21,P=e.sz23,Z=e.sz31,G=e.sz33,H=e.t,Y=e.tc,$=e.gsto,B=e.mo,J=e.mdot,K=e.no,N=e.nodeo,Q=e.nodedot,V=e.xpidot,W=e.z1,X=e.z3,oo=e.z11,to=e.z13,eo=e.z21,so=e.z23,ao=e.z31,no=e.z33,ro=e.ecco,io=e.eccsq,co=e.emsq,ho=e.em,mo=e.argpm,lo=e.inclm,po=e.mm,xo=e.nm,go=e.nodem,Mo=e.irez,fo=e.atime,uo=e.d2201,zo=e.d2211,vo=e.d3210,yo=e.d3222,bo=e.d4410,qo=e.d4422,wo=e.d5220,To=e.d5232,jo=e.d5421,Eo=e.d5433,Fo=e.dedt,Ao=e.didt,Co=e.dmdt,Lo=e.dnodt,So=e.domdt,Uo=e.del1,Do=e.del2,Io=e.del3,Ro=e.xfact,_o=e.xlamo,ko=e.xli,Oo=e.xni,Po=.0043752690880113,Zo=.00015835218,Go=119459e-10;Mo=0,xo<.0052359877&&xo>.0034906585&&(Mo=1),xo>=.00826&&xo<=.00924&&ho>=.5&&(Mo=2);var Ho=-Go*L*(O+P);(lo<.052359877||lo>o-.052359877)&&(Ho=0),0!==A&&(Ho/=A);var Yo=-Zo*T*(eo+so);(lo<.052359877||lo>o-.052359877)&&(Yo=0),So=U*Go*(Z+G-6)-b*Ho+E*Zo*(ao+no-6),Lo=Ho,0!==A&&(So-=b/A*Yo,Lo+=Yo/A);var $o=($+Y*Po)%t;if(ho+=(Fo=C*Go*D+w*Zo*F)*H,lo+=(Ao=L*Go*(_+k)+T*Zo*(oo+to))*H,mo+=So*H,go+=Lo*H,po+=(Co=-Go*S*(I+R-14-6*co)-Zo*j*(W+X-14-6*co))*H,0!==Mo){if(z=Math.pow(xo/r,x),2===Mo){var Bo=ho,Jo=co;y=(ho=ro)*(co=io),ho<=.65?(n=3.616-13.247*ho+16.29*co,d=117.39*ho-19.302-228.419*co+156.591*y,i=109.7927*ho-18.9068-214.6334*co+146.5816*y,c=242.694*ho-41.122-471.094*co+313.953*y,h=841.88*ho-146.407-1629.014*co+1083.435*y,m=3017.977*ho-532.114-5740.032*co+3708.276*y):(n=331.819*ho-72.099-508.738*co+266.724*y,d=1582.851*ho-346.844-2415.925*co+1246.113*y,i=1554.908*ho-342.585-2366.899*co+1215.972*y,c=4758.686*ho-1052.797-7193.992*co+3651.957*y,h=16178.11*ho-3581.69-24462.77*co+12422.52*y,m=ho>.715?29936.92*ho-5149.66-54087.36*co+31324.56*y:1464.74-4664.75*ho+3763.64*co),ho<.7?(g=4988.61*ho-919.2277-9064.77*co+5542.21*y,l=4568.6173*ho-822.71072-8491.4146*co+5337.524*y,p=4690.25*ho-853.666-8624.77*co+5341.4*y):(g=161616.52*ho-37995.78-229838.2*co+109377.94*y,l=218913.95*ho-51752.104-309468.16*co+146349.42*y,p=170470.89*ho-40023.88-242699.48*co+115605.82*y),uo=(f=17891679e-13*(u=xo*xo*3*(z*z)))*(s=.75*(1+2*b+(v=b*b)))*(-.306-.44*(ho-.64)),zo=f*(1.5*(M=A*A))*n,vo=(f=3.7393792e-7*(u*=z))*(1.875*A*(1-2*b-3*v))*d,yo=f*(-1.875*A*(1+2*b-3*v))*i,bo=(f=2*(u*=z)*7.3636953e-9)*(35*M*s)*c,qo=f*(39.375*M*M)*h,wo=(f=1.1428639e-7*(u*=z))*(9.84375*A*(M*(1-2*b-5*v)+.33333333*(4*b-2+6*v)))*m,To=f*(A*(4.92187512*M*(-2-4*b+10*v)+6.56250012*(1+2*b-3*v)))*p,jo=(f=2*u*2.1765803e-9)*(29.53125*A*(2-8*b+v*(8*b-12+10*v)))*l,Eo=f*(29.53125*A*(-2-8*b+v*(12+8*b-10*v)))*g,_o=(B+N+N-($o+$o))%t,Ro=J+Co+2*(Q+Lo-Po)-K,ho=Bo,co=Jo}1===Mo&&(a=1+b,Do=2*(Uo=3*xo*xo*z*z)*(s=.75*(1+b)*(1+b))*(1+co*(.8125*co-2.5))*17891679e-13,Io=3*Uo*(a*=1.875*a*a)*(1+co*(6.60937*co-6))*2.2123015e-7*z,Uo=Uo*(.9375*A*A*(1+3*b)-.75*(1+b))*(d=1+2*co)*21460748e-13*z,_o=(B+N+q-$o)%t,Ro=J+V+Co+So+Lo-(K+Po)),ko=_o,Oo=K,fo=0,xo=K+0}return{em:ho,argpm:mo,inclm:lo,mm:po,nm:xo,nodem:go,irez:Mo,atime:fo,d2201:uo,d2211:zo,d3210:vo,d3222:yo,d4410:bo,d4422:qo,d5220:wo,d5232:To,d5421:jo,d5433:Eo,dedt:Fo,didt:Ao,dmdt:Co,dndt:0,dnodt:Lo,domdt:So,del1:Uo,del2:Do,del3:Io,xfact:Ro,xlamo:_o,xli:ko,xni:Oo}}({cosim:a,emsq:q,argpo:e.argpo,s1:S,s2:U,s3:D,s4:I,s5:R,sinim:n,ss1:k,ss2:O,ss3:P,ss4:Z,ss5:G,sz1:H,sz3:Y,sz11:$,sz13:B,sz21:J,sz23:K,sz31:N,sz33:Q,t:e.t,tc:0,gsto:e.gsto,mo:e.mo,mdot:e.mdot,no:e.no,nodeo:e.nodeo,nodedot:e.nodedot,xpidot:eo,z1:ao,z3:no,z11:ro,z13:io,z21:co,z23:ho,z31:mo,z33:lo,ecco:e.ecco,eccsq:Fo,em:b,argpm:0,inclm:j,mm:0,nm:E,nodem:0,irez:e.irez,atime:e.atime,d2201:e.d2201,d2211:e.d2211,d3210:e.d3210,d3222:e.d3222,d4410:e.d4410,d4422:e.d4422,d5220:e.d5220,d5232:e.d5232,d5421:e.d5421,d5433:e.d5433,dedt:e.dedt,didt:e.didt,dmdt:e.dmdt,dnodt:e.dnodt,domdt:e.domdt,del1:e.del1,del2:e.del2,del3:e.del3,xfact:e.xfact,xlamo:e.xlamo,xli:e.xli,xni:e.xni});e.irez=ko.irez,e.atime=ko.atime,e.d2201=ko.d2201,e.d2211=ko.d2211,e.d3210=ko.d3210,e.d3222=ko.d3222,e.d4410=ko.d4410,e.d4422=ko.d4422,e.d5220=ko.d5220,e.d5232=ko.d5232,e.d5421=ko.d5421,e.d5433=ko.d5433,e.dedt=ko.dedt,e.didt=ko.didt,e.dmdt=ko.dmdt,e.dnodt=ko.dnodt,e.domdt=ko.domdt,e.del1=ko.del1,e.del2=ko.del2,e.del3=ko.del3,e.xfact=ko.xfact,e.xlamo=ko.xlamo,e.xli=ko.xli,e.xni=ko.xni}1!==e.isimp&&(i=e.cc1*e.cc1,e.d2=4*wo*to*i,V=e.d2*to*e.cc1/3,e.d3=(17*wo+_)*V,e.d4=.5*V*wo*to*(221*wo+31*_)*e.cc1,e.t3cof=e.d2+2*i,e.t4cof=.25*(3*e.d3+e.cc1*(12*e.d2+10*i)),e.t5cof=.2*(3*e.d4+12*e.cc1*e.d3+6*e.d2*e.d2+15*i*(2*e.d2+i)))}y(e,0),e.init="n"}function q(o){return function(o){if(Array.isArray(o))return w(o)}(o)||function(o){if("undefined"!=typeof Symbol&&null!=o[Symbol.iterator]||null!=o["@@iterator"])return Array.from(o)}(o)||function(o,t){if(!o)return;if("string"==typeof o)return w(o,t);var e=Object.prototype.toString.call(o).slice(8,-1);"Object"===e&&o.constructor&&(e=o.constructor.name);if("Map"===e||"Set"===e)return Array.from(o);if("Arguments"===e||/^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(e))return w(o,t)}(o)||function(){throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}()}function w(o,t){(null==t||t>o.length)&&(t=o.length);for(var e=0,s=new Array(t);e<t;e++)s[e]=o[e];return s}function T(o){return o*s}function j(o){return o*e}function E(o){var t=o.longitude,e=o.latitude,s=o.height,a=6378.137,n=(a-6356.7523142)/a,d=2*n-n*n,r=a/Math.sqrt(1-d*(Math.sin(e)*Math.sin(e)));return{x:(r+s)*Math.cos(e)*Math.cos(t),y:(r+s)*Math.cos(e)*Math.sin(t),z:(r*(1-d)+s)*Math.sin(e)}}var F={constants:Object.freeze({__proto__:null,deg2rad:e,earthRadius:d,j2:h,j3:m,j3oj2:p,j4:l,minutesPerDay:a,mu:n,pi:o,rad2deg:s,tumin:c,twoPi:t,vkmpersec:i,x2o3:x,xke:r}),propagate:function(){for(var o=arguments.length,t=new Array(o),e=0;e<o;e++)t[e]=arguments[e];var s=t[0],n=Array.prototype.slice.call(t,1),d=f.apply(void 0,q(n)),r=(d-s.jdsatepoch)*a;return y(s,r)},sgp4:y,twoline2satrec:function(t,s){var a=1440/(2*o),n=0,d={error:0};d.satnum=t.substring(2,7),d.epochyr=parseInt(t.substring(18,20),10),d.epochdays=parseFloat(t.substring(20,32)),d.ndot=parseFloat(t.substring(33,43)),d.nddot=parseFloat(".".concat(parseInt(t.substring(44,50),10),"E").concat(t.substring(50,52))),d.bstar=parseFloat("".concat(t.substring(53,54),".").concat(parseInt(t.substring(54,59),10),"E").concat(t.substring(59,61))),d.inclo=parseFloat(s.substring(8,16)),d.nodeo=parseFloat(s.substring(17,25)),d.ecco=parseFloat(".".concat(s.substring(26,33))),d.argpo=parseFloat(s.substring(34,42)),d.mo=parseFloat(s.substring(43,51)),d.no=parseFloat(s.substring(52,63)),d.no/=a,d.inclo*=e,d.nodeo*=e,d.argpo*=e,d.mo*=e;var r=g(n=d.epochyr<57?d.epochyr+2e3:d.epochyr+1900,d.epochdays),i=r.mon,c=r.day,h=r.hr,m=r.minute,l=r.sec;return d.jdsatepoch=f(n,i,c,h,m,l),b(d,{opsmode:"i",satn:d.satnum,epoch:d.jdsatepoch-2433281.5,xbstar:d.bstar,xecco:d.ecco,xargpo:d.argpo,xinclo:d.inclo,xmo:d.mo,xno:d.no,xnodeo:d.nodeo}),d},gstime:v,jday:f,invjday:function(o,t){var e=o-2415019.5,s=e/365.25,a=1900+Math.floor(s),n=Math.floor(.25*(a-1901)),d=e-(365*(a-1900)+n)+1e-11;d<1&&(d=e-(365*((a-=1)-1900)+(n=Math.floor(.25*(a-1901)))));var r=g(a,d),i=r.mon,c=r.day,h=r.hr,m=r.minute,l=r.sec-864e-9;return t?[a,i,c,h,m,Math.floor(l)]:new Date(Date.UTC(a,i-1,c,h,m,Math.floor(l)))},dopplerFactor:function(o,t,e){var s=7292115e-11,a={x:t.x-o.x,y:t.y-o.y,z:t.z-o.z};a.w=Math.sqrt(Math.pow(a.x,2)+Math.pow(a.y,2)+Math.pow(a.z,2));var n=e.x+s*o.y,d=e.y-s*o.x,r=e.z,i=(a.x*n+a.y*d+a.z*r)/a.w;return 1+i/299792.458*(i>=0?1:-1)},radiansToDegrees:T,degreesToRadians:j,degreesLat:function(t){if(t<-o/2||t>o/2)throw new RangeError("Latitude radians must be in range [-pi/2; pi/2].");return T(t)},degreesLong:function(t){if(t<-o||t>o)throw new RangeError("Longitude radians must be in range [-pi; pi].");return T(t)},radiansLat:function(o){if(o<-90||o>90)throw new RangeError("Latitude degrees must be in range [-90; 90].");return j(o)},radiansLong:function(o){if(o<-180||o>180)throw new RangeError("Longitude degrees must be in range [-180; 180].");return j(o)},geodeticToEcf:E,eciToGeodetic:function(e,s){for(var a=6378.137,n=Math.sqrt(e.x*e.x+e.y*e.y),d=(a-6356.7523142)/a,r=2*d-d*d,i=Math.atan2(e.y,e.x)-s;i<-o;)i+=t;for(;i>o;)i-=t;for(var c,h=0,m=Math.atan2(e.z,Math.sqrt(e.x*e.x+e.y*e.y));h<20;)c=1/Math.sqrt(1-r*(Math.sin(m)*Math.sin(m))),m=Math.atan2(e.z+a*c*r*Math.sin(m),n),h+=1;return{longitude:i,latitude:m,height:n/Math.cos(m)-a*c}},eciToEcf:function(o,t){return{x:o.x*Math.cos(t)+o.y*Math.sin(t),y:o.x*-Math.sin(t)+o.y*Math.cos(t),z:o.z}},ecfToEci:function(o,t){return{x:o.x*Math.cos(t)-o.y*Math.sin(t),y:o.x*Math.sin(t)+o.y*Math.cos(t),z:o.z}},ecfToLookAngles:function(t,e){var s,a,n,d,r,i,c=function(o,t){var e=o.longitude,s=o.latitude,a=E(o),n=t.x-a.x,d=t.y-a.y,r=t.z-a.z;return{topS:Math.sin(s)*Math.cos(e)*n+Math.sin(s)*Math.sin(e)*d-Math.cos(s)*r,topE:-Math.sin(e)*n+Math.cos(e)*d,topZ:Math.cos(s)*Math.cos(e)*n+Math.cos(s)*Math.sin(e)*d+Math.sin(s)*r}}(t,e);return a=(s=c).topS,n=s.topE,d=s.topZ,r=Math.sqrt(a*a+n*n+d*d),i=Math.asin(d/r),{azimuth:Math.atan2(-n,a)+o,elevation:i,rangeSat:r}}};return F}));
+</script>
+<script id="robot36src" type="text/plain">/* Декодер SSTV Robot 36 — порт robot36.py на JavaScript.
+ *
+ * Отличие от питон-версии: вместо полосового фильтра + преобразования
+ * Гильберта используется квадратурный перенос на F0=1750 Гц + комплексный
+ * ФНЧ Баттерворта (эквивалентно полосе 950–2550 Гц). Частота и «фазовые
+ * приращения» (prod) получаются те же с точностью до константы F0.
+ * Остальная логика (цепочки синхро, рендер, шумоподавление) — один в один.
+ */
+"use strict";
+
+const SSTV = (() => {
+const FS = 12000;
+const LINE = 0.150;
+const SYNC = 0.009, PORCH = 0.003, Y_LEN = 0.088, SEP = 0.0045, PORCH2 = 0.0015, C_LEN = 0.044;
+const LINES = 240, WIDTH = 320;
+const P_MIN = LINE * 0.97, P_MAX = LINE * 1.03;
+const PRE_EMPH = 0.8;
+const F0 = 1750;
+
+// butter(6, 800, lowpass, fs=12000) -> 3 секции biquad [b0,b1,b2,1,a1,a2]
+const SOS = [
+  [4.074821971584726e-05, 8.149643943169452e-05, 4.074821971584726e-05, -1.3117384764067905, 0.43587652418712086],
+  [1, 2, 1, -1.4189826522181201, 0.553269889688683],
+  [1, 2, 1, -1.653070244233487, 0.809510660256826],
+];
+
+// ---------------- мелкая численная база ----------------
+function biquadFwd(re, im, c) {
+  const [b0, b1, b2, a1, a2] = c;
+  let x1r = 0, x2r = 0, y1r = 0, y2r = 0, x1i = 0, x2i = 0, y1i = 0, y2i = 0;
+  for (let n = 0; n < re.length; n++) {
+    const xr = re[n], xi = im[n];
+    const yr = b0 * xr + b1 * x1r + b2 * x2r - a1 * y1r - a2 * y2r;
+    const yi = b0 * xi + b1 * x1i + b2 * x2i - a1 * y1i - a2 * y2i;
+    x2r = x1r; x1r = xr; y2r = y1r; y1r = yr; re[n] = yr;
+    x2i = x1i; x1i = xi; y2i = y1i; y1i = yi; im[n] = yi;
+  }
+}
+function reverseInPlace(a) { for (let i = 0, j = a.length - 1; i < j; i++, j--) { const t = a[i]; a[i] = a[j]; a[j] = t; } }
+function sosFiltFilt(re, im) {
+  for (const c of SOS) biquadFwd(re, im, c);
+  reverseInPlace(re); reverseInPlace(im);
+  for (const c of SOS) biquadFwd(re, im, c);
+  reverseInPlace(re); reverseInPlace(im);
+}
+function medfilt5(a) {
+  const n = a.length, out = new Float32Array(n), w = new Float32Array(5);
+  if (n < 5) { out.set(a); return out; }
+  out[0] = a[0]; out[1] = a[1]; out[n - 2] = a[n - 2]; out[n - 1] = a[n - 1];
+  for (let i = 2; i < n - 2; i++) {
+    w[0] = a[i - 2]; w[1] = a[i - 1]; w[2] = a[i]; w[3] = a[i + 1]; w[4] = a[i + 2];
+    // сортировка 5 элементов
+    for (let p = 1; p < 5; p++) { const v = w[p]; let q = p - 1; while (q >= 0 && w[q] > v) { w[q + 1] = w[q]; q--; } w[q + 1] = v; }
+    out[i] = w[2];
+  }
+  // края как в scipy medfilt (нули за границей): близко, но края не важны
+  return out;
+}
+function boxcarSame(a, k) {
+  // np.convolve(a, ones(k)/k, 'same')
+  const n = a.length, out = new Float32Array(n);
+  const cs = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) cs[i + 1] = cs[i] + a[i];
+  const left = Math.floor((k - 1) / 2);
+  for (let i = 0; i < n; i++) {
+    const a0 = Math.max(0, i - left), b0 = Math.min(n, i - left + k);
+    out[i] = (cs[b0] - cs[a0]) / k;      // scipy делит на k даже у края (нули за границей)
+  }
+  return out;
+}
+function boxcarStart(a, k) {
+  // s[i] = mean(a[i .. i+k-1]), хвост с нулями за границей (как 'full'[k-1:])
+  const n = a.length, out = new Float32Array(n);
+  const cs = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) cs[i + 1] = cs[i] + a[i];
+  for (let i = 0; i < n; i++) {
+    const b0 = Math.min(n, i + k);
+    out[i] = (cs[b0] - cs[i]) / k;
+  }
+  return out;
+}
+function findPeaks(s, height, distance) {
+  const n = s.length, cand = [];
+  for (let i = 1; i < n - 1; i++) {
+    if (s[i] >= height && s[i] > s[i - 1]) {
+      let j = i;
+      while (j < n - 1 && s[j + 1] === s[i]) j++;
+      if (j === n - 1 || s[j + 1] < s[i]) { cand.push((i + j) >> 1); i = j; }
+    }
+  }
+  if (!distance || distance <= 1) return cand;
+  const order = cand.map((p, idx) => idx).sort((a, b) => s[cand[b]] - s[cand[a]]);
+  const keep = new Uint8Array(cand.length).fill(1);
+  for (const idx of order) {
+    if (!keep[idx]) continue;
+    for (let j = idx - 1; j >= 0 && cand[idx] - cand[j] < distance; j--) keep[j] = 0;
+    for (let j = idx + 1; j < cand.length && cand[j] - cand[idx] < distance; j++) keep[j] = 0;
+  }
+  return cand.filter((_, i) => keep[i]);
+}
+function interp1(x, xp, fp) {
+  // np.interp для возрастающего xp
+  const out = new Float64Array(x.length);
+  for (let i = 0; i < x.length; i++) {
+    const v = x[i];
+    if (v <= xp[0]) { out[i] = fp[0]; continue; }
+    if (v >= xp[xp.length - 1]) { out[i] = fp[fp.length - 1]; continue; }
+    let lo = 0, hi = xp.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (xp[m] <= v) lo = m; else hi = m; }
+    const t = (v - xp[lo]) / (xp[hi] - xp[lo]);
+    out[i] = fp[lo] + t * (fp[hi] - fp[lo]);
+  }
+  return out;
+}
+function median(arr) {
+  if (!arr.length) return 0;
+  const a = Float64Array.from(arr).sort();
+  const m = a.length >> 1;
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+// ---------------- мгновенная частота ----------------
+function instFreq(x) {
+  const n = x.length;
+  if (n < 256) return { f: new Float32Array(n), ok: new Uint8Array(n), prodRe: new Float64Array(n), prodIm: new Float64Array(n) };
+  // пре-эмфазис
+  const xe = new Float64Array(n);
+  xe[0] = x[0];
+  for (let i = 1; i < n; i++) xe[i] = x[i] - PRE_EMPH * x[i - 1];
+  // квадратурный перенос на F0 и комплексный ФНЧ (нулевая фаза)
+  const re = new Float64Array(n), im = new Float64Array(n);
+  const w = 2 * Math.PI * F0 / FS;
+  for (let i = 0; i < n; i++) { const c = Math.cos(w * i), s = Math.sin(w * i); re[i] = xe[i] * c; im[i] = -xe[i] * s; }
+  sosFiltFilt(re, im);
+  // prod[n] = z[n]*conj(z[n-1]); частота = F0 + angle(prod)*fs/2pi
+  const prodRe = new Float64Array(n), prodIm = new Float64Array(n);
+  let f = new Float32Array(n);
+  for (let i = 1; i < n; i++) {
+    const pr = re[i] * re[i - 1] + im[i] * im[i - 1];
+    const pi = im[i] * re[i - 1] - re[i] * im[i - 1];
+    prodRe[i] = pr; prodIm[i] = pi;
+    f[i] = F0 + Math.atan2(pi, pr) * FS / (2 * Math.PI);
+  }
+  prodRe[0] = prodRe[Math.min(1, n - 1)]; prodIm[0] = prodIm[Math.min(1, n - 1)];
+  f[0] = f[Math.min(1, n - 1)];
+  f = medfilt5(f);
+  const k = Math.max(1, Math.round(0.0004 * FS));
+  f = boxcarSame(f, k);
+  // огибающая по пре-эмфазированному сигналу
+  const ke = Math.floor(0.004 * FS);
+  const absx = new Float32Array(n);
+  for (let i = 0; i < n; i++) absx[i] = Math.abs(xe[i]);
+  const env = boxcarSame(absx, ke);
+  const ok = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    ok[i] = env[i] > 1e-4 ? 1 : 0;
+    if (f[i] < 900) f[i] = 900; else if (f[i] > 2600) f[i] = 2600;
+  }
+  return { f, ok, prodRe, prodIm };
+}
+
+// ---------------- синхро и цепочки ----------------
+function syncScore(f, ok) {
+  const n = f.length, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let v = (1500.0 - f[i]) / 300.0;
+    if (v > 1) v = 1; else if (v < -1) v = -1;
+    c[i] = ok[i] ? v : -1.0;
+  }
+  return boxcarStart(c, Math.floor(SYNC * FS));
+}
+
+function findChains(F, minLines = 15) {
+  const { f, ok } = F;
+  const s = syncScore(f, ok);
+  const pk = findPeaks(s, 0.45, Math.floor(0.09 * FS));
+  let done = [], open_ = [];
+  for (const t of pk) {
+    const still = [];
+    for (const c of open_) (t - c.last_t <= 8.5 * c.P ? still : done).push(c);
+    open_ = still;
+    let attached = false;
+    for (const c of open_) {
+      const d = t - c.last_t;
+      const m = Math.round(d / c.P);
+      const tol = (0.0025 + 0.0007 * m) * FS;
+      if (m >= 1 && m <= 8 && Math.abs(d - m * c.P) < tol) {
+        const nn = c.last_n + m;
+        c.lines.set(nn, t);
+        if (m === 1) c.P = Math.min(Math.max(0.85 * c.P + 0.15 * d, P_MIN * FS), P_MAX * FS);
+        c.last_t = t; c.last_n = nn;
+        attached = true;
+      }
+    }
+    if (!attached) open_.push({ lines: new Map([[0, t]]), P: LINE * FS, last_t: t, last_n: 0 });
+  }
+  done = done.concat(open_);
+  done.sort((a, b) => b.lines.size - a.lines.size);
+  const taken = [], chains = [];
+  for (const c of done) {
+    if (c.lines.size < 4) continue;
+    const ts = [...c.lines.values()];
+    const a = Math.min(...ts), b = Math.max(...ts);
+    if (taken.some(([ta, tb]) => a < tb - 0.5 * FS && b > ta + 0.5 * FS)) continue;
+    taken.push([a, b]);
+    chains.push(c);
+  }
+  chains.sort((a, b) => Math.min(...a.lines.values()) - Math.min(...b.lines.values()));
+  // склейка кусков одной картинки через провал
+  const merged = [];
+  for (const c of chains) {
+    if (merged.length) {
+      const prev = merged[merged.length - 1];
+      const pend_n = Math.max(...prev.lines.keys());
+      const pend_t = prev.lines.get(pend_n);
+      const c0_n = Math.min(...c.lines.keys());
+      const c0_t = c.lines.get(c0_n);
+      const gap = c0_t - pend_t;
+      const span = (pend_n - Math.min(...prev.lines.keys())) + (Math.max(...c.lines.keys()) - c0_n);
+      if (gap > 0 && gap < 10 * FS && span < LINES + 5) {
+        const shift = pend_n + Math.max(1, Math.round(gap / prev.P)) - c0_n;
+        for (const [nn, tt] of c.lines) prev.lines.set(nn + shift, tt);
+        prev.P = c.P;
+        continue;
+      }
+    }
+    merged.push(c);
+  }
+  const out = [];
+  for (const c of merged) {
+    if (c.lines.size < minLines) continue;
+    extendChain(c, s);
+    const ns = [...c.lines.keys()].sort((a, b) => a - b);
+    const steps = [];
+    for (let i = 1; i < ns.length; i++) {
+      const st = (c.lines.get(ns[i]) - c.lines.get(ns[i - 1])) / (ns[i] - ns[i - 1]);
+      if (st > P_MIN * FS && st < P_MAX * FS) steps.push(st);
+    }
+    if (steps.length < Math.floor(minLines / 2)) continue;
+    out.push({ lines: new Map([...c.lines.entries()].sort((a, b) => a[0] - b[0])), P: median(steps) });
+  }
+  return out;
+}
+
+function extendChain(c, s, maxMiss = 15) {
+  for (const dir of [1, -1]) {
+    let n = dir > 0 ? Math.max(...c.lines.keys()) : Math.min(...c.lines.keys());
+    let t = c.lines.get(n);
+    let P = c.P;
+    let miss = 0;
+    while (miss < maxMiss) {
+      const span = Math.max(...c.lines.keys()) - Math.min(...c.lines.keys()) + 1;
+      if (span >= LINES) break;
+      n += dir;
+      const tPred = t + dir * P * (miss + 1);
+      const w = Math.floor((0.002 + 0.0004 * miss) * FS);
+      const a = Math.floor(tPred) - w, b = Math.floor(tPred) + w + 1;
+      if (a < 0 || b >= s.length) break;
+      let j = a, best = -1e9;
+      for (let i = a; i < b; i++) if (s[i] > best) { best = s[i]; j = i; }
+      if (best > 0.3) {
+        c.lines.set(n, j);
+        if (miss === 0) P = 0.95 * P + 0.05 * Math.abs(j - t);
+        t = j; miss = 0;
+      } else miss++;
+    }
+  }
+}
+
+// ---------------- привязка начала ----------------
+function leaderEnd(f, ok, t0) {
+  const a = Math.max(0, t0 - Math.floor(1.3 * FS));
+  const len = t0 - a;
+  if (len < Math.floor(0.3 * FS)) return null;
+  const inb = new Float32Array(len);
+  for (let i = 0; i < len; i++) inb[i] = (Math.abs(f[a + i] - 1900) < 150 && ok[a + i]) ? 1 : 0;
+  const k = Math.floor(0.2 * FS);
+  if (len < k) return null;
+  // скользящая доля ('valid')
+  const cs = new Float64Array(len + 1);
+  for (let i = 0; i < len; i++) cs[i + 1] = cs[i] + inb[i];
+  let lastGood = -1, maxFr = 0;
+  for (let i = 0; i + k <= len; i++) {
+    const fr = (cs[i + k] - cs[i]) / k;
+    if (fr > maxFr) maxFr = fr;
+    if (fr >= 0.6) lastGood = i;
+  }
+  if (maxFr < 0.6 || lastGood < 0) return null;
+  return a + lastGood + k;
+}
+
+function anchorOf(F, ch, lo, dataEnd) {
+  const { f, ok } = F;
+  const ts = [...ch.lines.values()];
+  const tFirst = Math.min(...ts), tLast = Math.max(...ts);
+  let le = leaderEnd(f, ok, Math.floor(tFirst - lo));
+  if (le == null) {
+    const nSorted = [...ch.lines.keys()].sort((a, b) => a - b);
+    if (nSorted.length > 2) le = leaderEnd(f, ok, Math.floor(ch.lines.get(nSorted[1]) - lo));
+  }
+  if (le != null) {
+    const line0 = le + lo + 0.300 * FS;
+    const pts = new Map();
+    for (const [n, t] of ch.lines) if (t >= line0 - 0.004 * FS) pts.set(n, t);
+    if (pts.size >= 2) {
+      const nFirst = Math.min(...pts.keys());
+      const k0 = Math.max(0, Math.round((pts.get(nFirst) - line0) / ch.P));
+      const remap = new Map();
+      for (const [n, t] of pts) remap.set(n - nFirst + k0, t);
+      ch.lines = remap;
+      ch.lead = true;
+      return "start";
+    }
+  }
+  const nlines = Math.max(...ch.lines.keys()) - Math.min(...ch.lines.keys()) + 1;
+  if (nlines < LINES - 2 && dataEnd - tLast > 1.5 * FS) return "end";
+  return "start";
+}
+
+// ---------------- рендер ----------------
+function render(F, chain, anchor = "start") {
+  const { f, ok, prodRe, prodIm } = F;
+  const N = f.length;
+  const lines = chain.lines;
+  const keys = [...lines.keys()];
+  let n0;
+  if (anchor === "end") n0 = Math.max(...keys) - (LINES - 1);
+  else if (chain.lead) n0 = 0;
+  else n0 = Math.min(...keys);
+  const idx = new Map();
+  for (const [n, t] of lines) { const m = n - n0; if (m >= 0 && m < LINES) idx.set(m, t); }
+  if (!idx.size) { chain.quality = 0; return { rgb: new Uint8ClampedArray(LINES * WIDTH * 4), good: 0, first: 0, nmax: 0 }; }
+  const first = Math.min(...idx.keys());
+  const nmax = Math.min(LINES, Math.max(...idx.keys()) + 1);
+  const known = [...idx.keys()].sort((a, b) => a - b);
+  const kt = known.map((k) => idx.get(k));
+  const allk = new Float64Array(nmax);
+  for (let i = 0; i < nmax; i++) allk[i] = i;
+  let starts;
+  if (known.length >= 2) {
+    starts = interp1(allk, known, kt);
+    const P = chain.P;
+    for (let i = 0; i < nmax; i++) {
+      if (i < known[0]) starts[i] = kt[0] - (known[0] - i) * P;
+      else if (i > known[known.length - 1]) starts[i] = kt[kt.length - 1] + (i - known[known.length - 1]) * P;
+    }
+  } else {
+    starts = new Float64Array(nmax);
+    for (let i = 0; i < nmax; i++) starts[i] = kt[0] + i * chain.P;
+  }
+  const scale = new Float64Array(nmax);
+  for (let i = 0; i < nmax; i++) {
+    const nxt = i + 1 < nmax ? starts[i + 1] : starts[i] + chain.P;
+    let sc = (nxt - starts[i]) / (LINE * FS);
+    scale[i] = Math.min(1.03, Math.max(0.97, sc));
+  }
+  // накопленные суммы
+  const cpr = new Float64Array(N + 1), cpi = new Float64Array(N + 1), ca = new Float64Array(N + 1);
+  const cs = new Float64Array(N + 1), co = new Float64Array(N + 1);
+  for (let i = 0; i < N; i++) {
+    cpr[i + 1] = cpr[i] + prodRe[i];
+    cpi[i + 1] = cpi[i] + prodIm[i];
+    ca[i + 1] = ca[i] + Math.hypot(prodRe[i], prodIm[i]);
+    cs[i + 1] = cs[i] + f[i];
+    co[i + 1] = co[i] + ok[i];
+  }
+  let lastCoh = null;
+  function seg(start, length, n) {
+    const mean = new Float64Array(n), valid = new Float64Array(n);
+    lastCoh = new Float64Array(n);
+    for (let j = 0; j < n; j++) {
+      let a = Math.round(start + j * (length * FS / n));
+      let b = Math.round(start + (j + 1) * (length * FS / n));
+      if (a < 0) a = 0; if (a > N) a = N;
+      if (b < a + 1) b = a + 1; if (b > N) b = N;
+      if (a > b - 1) a = b - 1;
+      if (a < 0) { a = 0; b = 1; }
+      const zr = cpr[b] - cpr[a], zi = cpi[b] - cpi[a];
+      let m = F0 + Math.atan2(zi, zr) * FS / (2 * Math.PI);
+      if (m < 900) m = 900; else if (m > 2600) m = 2600;
+      mean[j] = m;
+      lastCoh[j] = Math.hypot(zr, zi) / Math.max(ca[b] - ca[a], 1e-12);
+      valid[j] = (co[b] - co[a]) >= 0.6 * (b - a) ? 1 : 0;
+    }
+    return { mean, valid };
+  }
+  const val = (fr) => Math.min(255, Math.max(0, (fr - 1500.0) / 800.0 * 255.0));
+
+  const Y = new Float32Array(LINES * WIDTH);
+  const CH = new Float32Array(LINES * WIDTH).fill(128);
+  const sepArr = new Float64Array(LINES);
+  const good = new Uint8Array(LINES);
+  const lineQ = new Float32Array(LINES);
+  for (let n = first; n < nmax; n++) {
+    const k = scale[n];
+    const y0 = starts[n] + (SYNC + PORCH) * FS * k;
+    const { mean: y, valid: vy } = seg(y0, Y_LEN * k, WIDTH);
+    const sp = seg(y0 + Y_LEN * FS * k, SEP * k, 1).mean;
+    const { mean: c } = seg(y0 + (Y_LEN + SEP + PORCH2) * FS * k, C_LEN * k, WIDTH >> 1);
+    const coh = lastCoh;
+    for (let j = 0; j < (WIDTH >> 1); j++) {
+      let w = (coh[j] - 0.35) / 0.4;
+      if (w < 0) w = 0; else if (w > 1) w = 1;
+      c[j] = 1900.0 + w * (c[j] - 1900.0);
+    }
+    sepArr[n] = sp[0];
+    let vsum = 0; for (let j = 0; j < WIDTH; j++) vsum += vy[j];
+    good[n] = vsum / WIDTH > 0.7 ? 1 : 0;
+    const a0 = Math.max(0, Math.floor(starts[n]));
+    let lq = 0, cnt = 0;
+    for (let i = a0; i < Math.min(N, a0 + Math.floor(SYNC * FS)); i++) {
+      let v = (1500.0 - f[i]) / 300.0;
+      if (v > 1) v = 1; else if (v < -1) v = -1;
+      lq += v; cnt++;
+    }
+    lq = cnt ? lq / cnt : 0;
+    lineQ[n] = Math.max(0, lq) * (idx.has(n) ? 1.0 : 0.5) * (good[n] ? 1.0 : 0.0);
+    for (let j = 0; j < WIDTH; j++) Y[n * WIDTH + j] = val(y[j]);
+    for (let j = 0; j < WIDTH; j++) CH[n * WIDTH + j] = val(c[j >> 1]);
+    if (!good[n] && n > first) {
+      for (let j = 0; j < WIDTH; j++) {
+        Y[n * WIDTH + j] = Y[(n - 1) * WIDTH + j];
+        CH[n * WIDTH + j] = CH[(n > 1 ? n - 2 : n - 1) * WIDTH + j];
+      }
+    }
+  }
+  // чётность цветовых строк
+  const ev = [], od = [];
+  for (let n = first; n < nmax; n++) (n % 2 === 0 ? ev : od).push(sepArr[n]);
+  const byOdd = (od.length ? median(od) : 0) >= (ev.length ? median(ev) : 0);
+  const RY = new Float32Array(LINES * WIDTH).fill(128);
+  const BY = new Float32Array(LINES * WIDTH).fill(128);
+  for (let n = first - (first % 2); n < nmax; n += 2) {
+    const pair = [n, n + 1].filter((m) => m >= first && m < nmax);
+    for (const m of pair) {
+      const isBy = (m % 2 === 1) === byOdd;
+      const T = isBy ? BY : RY;
+      for (const q of pair)
+        for (let j = 0; j < WIDTH; j++) T[q * WIDTH + j] = CH[m * WIDTH + j];
+    }
+  }
+  let Yd = Y, RYd = RY, BYd = BY;
+  if (SSTVConfig.denoise) [Yd, RYd, BYd] = denoise(Y, RY, BY, first, nmax);
+  const rgb = toRGB(Yd, RYd, BYd, first, nmax);
+  chain.quality = quality(rgb, first, nmax);
+  chain.lineQ = lineQ;
+  chain.starts = starts;
+  let g = 0; for (let n = first; n < nmax; n++) g += good[n];
+  return { rgb, good: g, first, nmax };
+}
+
+function toRGB(Y, RY, BY, first, nmax) {
+  const rgb = new Uint8ClampedArray(LINES * WIDTH * 4);
+  for (let n = first; n < nmax; n++) {
+    for (let j = 0; j < WIDTH; j++) {
+      const i = n * WIDTH + j;
+      const y = Y[i], cr = RY[i] - 128.0, cb = BY[i] - 128.0;
+      const o = i * 4;
+      rgb[o] = y + 1.402 * cr;
+      rgb[o + 1] = y - 0.344136 * cb - 0.714136 * cr;
+      rgb[o + 2] = y + 1.772 * cb;
+      rgb[o + 3] = 255;
+    }
+  }
+  for (let n = 0; n < first; n++) for (let j = 0; j < WIDTH; j++) rgb[(n * WIDTH + j) * 4 + 3] = 255;
+  for (let n = nmax; n < LINES; n++) for (let j = 0; j < WIDTH; j++) rgb[(n * WIDTH + j) * 4 + 3] = 255;
+  return rgb;
+}
+
+function quality(rgb, first, nmax) {
+  const rows = nmax - first;
+  if (rows < 3) return 0;
+  const Ym = [];
+  for (let n = first; n < nmax; n++) {
+    const row = new Float64Array(WIDTH);
+    let mean = 0;
+    for (let j = 0; j < WIDTH; j++) {
+      const o = (n * WIDTH + j) * 4;
+      const v = (rgb[o] + rgb[o + 1] + rgb[o + 2]) / 3;
+      row[j] = v; mean += v;
+    }
+    mean /= WIDTH;
+    for (let j = 0; j < WIDTH; j++) row[j] -= mean;
+    Ym.push(row);
+  }
+  let acc = 0, cnt = 0;
+  for (let i = 0; i + 1 < Ym.length; i++) {
+    let num = 0, da = 0, db = 0;
+    const a = Ym[i], b = Ym[i + 1];
+    for (let j = 0; j < WIDTH; j++) { num += a[j] * b[j]; da += a[j] * a[j]; db += b[j] * b[j]; }
+    acc += num / (Math.sqrt(da * db) + 1e-9);
+    cnt++;
+  }
+  return cnt ? acc / cnt : 0;
+}
+
+// ---------------- шумоподавление ----------------
+function median2d(src, first, nmax, rh, rw) {
+  const out = src.slice();
+  const win = new Float32Array((2 * rh + 1) * (2 * rw + 1));
+  for (let n = first; n < nmax; n++) {
+    for (let j = 0; j < WIDTH; j++) {
+      let k = 0;
+      for (let dy = -rh; dy <= rh; dy++) {
+        let y = n + dy; if (y < first) y = first; else if (y >= nmax) y = nmax - 1;
+        for (let dx = -rw; dx <= rw; dx++) {
+          let x = j + dx; if (x < 0) x = 0; else if (x >= WIDTH) x = WIDTH - 1;
+          win[k++] = src[y * WIDTH + x];
+        }
+      }
+      const w = win.subarray(0, k);
+      Array.prototype.sort.call(w, (a, b) => a - b);
+      out[n * WIDTH + j] = w[k >> 1];
+    }
+  }
+  return out;
+}
+function gaussKernel(sigma) {
+  const r = Math.max(1, Math.ceil(3 * sigma));
+  const k = new Float64Array(2 * r + 1);
+  let s = 0;
+  for (let i = -r; i <= r; i++) { k[i + r] = Math.exp(-i * i / (2 * sigma * sigma)); s += k[i + r]; }
+  for (let i = 0; i < k.length; i++) k[i] /= s;
+  return { k, r };
+}
+function gauss2d(src, first, nmax, sy, sx) {
+  const { k: ky, r: ry } = gaussKernel(sy);
+  const { k: kx, r: rx } = gaussKernel(sx);
+  const tmp = src.slice(), out = src.slice();
+  for (let n = first; n < nmax; n++) {
+    for (let j = 0; j < WIDTH; j++) {
+      let acc = 0;
+      for (let d = -rx; d <= rx; d++) {
+        let x = j + d; if (x < 0) x = 0; else if (x >= WIDTH) x = WIDTH - 1;
+        acc += kx[d + rx] * src[n * WIDTH + x];
+      }
+      tmp[n * WIDTH + j] = acc;
+    }
+  }
+  for (let n = first; n < nmax; n++) {
+    for (let j = 0; j < WIDTH; j++) {
+      let acc = 0;
+      for (let d = -ry; d <= ry; d++) {
+        let y = n + d; if (y < first) y = first; else if (y >= nmax) y = nmax - 1;
+        acc += ky[d + ry] * tmp[y * WIDTH + j];
+      }
+      out[n * WIDTH + j] = acc;
+    }
+  }
+  return out;
+}
+function denoise(Y, RY, BY, first, nmax) {
+  const RY2 = gauss2d(median2d(RY, first, nmax, 1, 2), first, nmax, 0.8, 1.5);
+  const BY2 = gauss2d(median2d(BY, first, nmax, 1, 2), first, nmax, 0.8, 1.5);
+  const med = median2d(Y, first, nmax, 1, 1);
+  const dev = new Float32Array(LINES * WIDTH);
+  for (let i = 0; i < dev.length; i++) dev[i] = Math.abs(Y[i] - med[i]);
+  const spread = median2d(dev, first, nmax, 2, 2);
+  const y2 = Y.slice();
+  for (let n = first; n < nmax; n++)
+    for (let j = 0; j < WIDTH; j++) {
+      const i = n * WIDTH + j;
+      if (Math.abs(Y[i] - med[i]) > Math.max(25.0, 3.0 * spread[i])) y2[i] = med[i];
+    }
+  const blur = gauss2d(y2, first, nmax, 0.7, 0.7);
+  const Y2 = Y.slice();
+  for (let n = first; n < nmax; n++)
+    for (let j = 0; j < WIDTH; j++) {
+      const i = n * WIDTH + j;
+      Y2[i] = 0.75 * y2[i] + 0.25 * blur[i];
+    }
+  return [Y2, RY2, BY2];
+}
+
+const SSTVConfig = { denoise: true };
+
+// ---------------- индикатор качества сигнала ----------------
+function syncStrength(F, seconds = 3.0) {
+  const { f, ok } = F;
+  const n = Math.floor(seconds * FS);
+  if (f.length < n) return 0;
+  const s = syncScore(f.subarray(f.length - n), ok.subarray(ok.length - n));
+  const d = Math.max(1, Math.floor(FS / 1000));
+  // максимум в окне ±2.5 мс, затем прореживание до шага 1 мс
+  const half = Math.floor(0.005 * FS / 2);
+  const L = Math.floor(s.length / d);
+  const sm = new Float32Array(L);
+  for (let i = 0; i < L; i++) {
+    const c0 = i * d;
+    let mx = -1e9;
+    for (let j = Math.max(0, c0 - half); j < Math.min(s.length, c0 + half + 1); j++) if (s[j] > mx) mx = s[j];
+    sm[i] = mx;
+  }
+  const kMax = Math.floor(seconds / P_MAX) - 1;
+  let best = -1;
+  for (let pi = 0; pi < 15; pi++) {
+    const P = (P_MIN + (P_MAX - P_MIN) * pi / 14) * 1000;
+    const phN = Math.floor(P);
+    for (let ph = 0; ph < phN; ph += 2) {
+      let acc = 0, cnt = 0, okRow = true;
+      for (let k = 0; k < kMax; k++) {
+        const pos = ph + Math.round(k * P);
+        if (pos >= L) { okRow = false; break; }
+        acc += sm[pos]; cnt++;
+      }
+      if (okRow && cnt) best = Math.max(best, acc / cnt);
+    }
+  }
+  return best;
+}
+
+// ---------------- разбор целиком и поток ----------------
+function decodeAudio(x, minQuality = 0.17) {
+  const F = instFreq(x);
+  const out = [];
+  for (const ch of findChains(F)) {
+    const anc = anchorOf(F, ch, 0, x.length);
+    const { rgb, good, first, nmax } = render(F, ch, anc);
+    if (ch.quality < minQuality) continue;
+    const tFirst = Math.min(...ch.lines.values());
+    out.push({ rgb, lines: good, t: tFirst / FS, P: ch.P / FS, q: ch.quality, start: !!ch.lead, anchor: anc, first, nmax });
+  }
+  return out;
+}
+
+class LiveDecoder {
+  constructor(fsIn, onImage = null, onPartial = null) {
+    this.fsIn = fsIn;
+    this.onImage = onImage;
+    this.onPartial = onPartial;
+    this.buf = new Float32Array(1 << 20);
+    this.n = 0;
+    this.ratio = FS / fsIn;
+    this.WINDOW = 60.0;
+    this.emittedUntil = -1;
+    this.count = 0;
+    this.images = [];
+    this.progress = null;
+    this.lastPoll = 0;
+    this.partial = null;
+    this.partialVer = 0;
+    this._wallN = [];
+    this._wallT = [];
+    if (fsIn !== FS) {
+      // ФНЧ 4.5 кГц (windowed-sinc, Хэмминг, 63 отвода) + линейная интерполяция
+      const taps = 63, fc = 4500 / fsIn;
+      this._fir = new Float64Array(taps);
+      let s = 0;
+      for (let i = 0; i < taps; i++) {
+        const m = i - (taps - 1) / 2;
+        const v = (m === 0 ? 2 * fc : Math.sin(2 * Math.PI * fc * m) / (Math.PI * m)) * (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (taps - 1)));
+        this._fir[i] = v; s += v;
+      }
+      for (let i = 0; i < taps; i++) this._fir[i] /= s;
+      this._hist = new Float64Array(taps - 1);
+      this._phase = 0;
+    }
+  }
+  _append(y) {
+    const need = this.n + y.length;
+    if (need > this.buf.length) {
+      const nb = new Float32Array(Math.max(need, 2 * this.buf.length));
+      nb.set(this.buf.subarray(0, this.n));
+      this.buf = nb;
+    }
+    this.buf.set(y, this.n);
+    this.n = need;
+  }
+  feed(samples, wallTime = Date.now() / 1000) {
+    let out;
+    if (!this._fir) {
+      out = samples instanceof Float32Array ? samples : Float32Array.from(samples);
+    } else {
+      const taps = this._fir.length, hist = this._hist;
+      const xs = new Float64Array(hist.length + samples.length);
+      xs.set(hist);
+      for (let i = 0; i < samples.length; i++) xs[hist.length + i] = samples[i];
+      const ny = samples.length;
+      const y = new Float64Array(ny);
+      for (let i = 0; i < ny; i++) {
+        let acc = 0;
+        for (let t = 0; t < taps; t++) acc += this._fir[t] * xs[i + taps - 1 - t];
+        y[i] = acc;
+      }
+      hist.set(xs.subarray(xs.length - hist.length));
+      const step = 1.0 / this.ratio;
+      const pos = [];
+      for (let p = this._phase; p < ny; p += step) pos.push(p);
+      this._phase = pos.length ? pos[pos.length - 1] + step - ny : this._phase - ny;
+      out = new Float32Array(pos.length);
+      for (let i = 0; i < pos.length; i++) {
+        const p = pos[i], i0 = Math.floor(p), i1 = Math.min(ny - 1, i0 + 1);
+        out[i] = y[i0] + (p - i0) * (y[i1] - y[i0]);
+      }
+    }
+    this._append(out);
+    this._wallN.push(this.n);
+    this._wallT.push(wallTime);
+  }
+  wall(n) {
+    if (!this._wallN.length) return null;
+    const xs = this._wallN, ys = this._wallT;
+    if (n <= xs[0]) return ys[0];
+    if (n >= xs[xs.length - 1]) return ys[ys.length - 1];
+    let lo = 0, hi = xs.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (xs[m] <= n) lo = m; else hi = m; }
+    const t = (n - xs[lo]) / (xs[hi] - xs[lo]);
+    return ys[lo] + t * (ys[hi] - ys[lo]);
+  }
+  poll(final = false) {
+    if (!final && this.n - this.lastPoll < 2 * FS) return;
+    this.lastPoll = this.n;
+    const lo = Math.max(0, this.n - Math.floor(this.WINDOW * FS));
+    const seg = this.buf.subarray(lo, this.n);
+    const F = instFreq(seg);
+    this.progress = null;
+    for (const ch of findChains(F)) {
+      const ts = [...ch.lines.values()];
+      const tFirst = Math.min(...ts) + lo;
+      const tLast = Math.max(...ts) + lo;
+      if (tFirst < this.emittedUntil - 1.0 * FS) continue;
+      const nlines = Math.max(...ch.lines.keys()) - Math.min(...ch.lines.keys()) + 1;
+      const ended = (this.n - tLast > 2.0 * FS) || nlines >= LINES || final;
+      if (!ended) {
+        this.progress = Math.min(LINES, nlines);
+        try {
+          const anc = anchorOf(F, ch, 0, seg.length);
+          const r = render(F, ch, anc);
+          this.partial = r.rgb;
+          this.partialVer++;
+          if (this.onPartial) this.onPartial(r.rgb, this.progress);
+        } catch (e) { /* noop */ }
+        continue;
+      }
+      const anc = anchorOf(F, ch, 0, seg.length);
+      const r = render(F, ch, anc);
+      this.emittedUntil = tLast;
+      if (r.good < 15 || ch.quality < 0.17) continue;
+      this.count++;
+      this.partial = null;
+      this.partialVer++;
+      const w0 = ch.starts && ch.starts.length ? this.wall(ch.starts[0] + lo) : null;
+      const rec = { rgb: r.rgb, lines: r.good, q: ch.quality, start: !!ch.lead, anchor: anc, w0, num: this.count };
+      this.images.push(rec);
+      if (this.onImage) this.onImage(rec);
+    }
+  }
+  strength() {
+    const n = Math.floor(3.5 * FS);
+    if (this.n < n) return 0;
+    const F = instFreq(this.buf.subarray(this.n - n, this.n));
+    const v = syncStrength(F);
+    return Math.min(1, Math.max(0, (v + 0.1) / 0.95)) * 100;
+  }
+  finish() { this.poll(true); }
+}
+
+return { FS, LINES, WIDTH, instFreq, findChains, decodeAudio, LiveDecoder, SSTVConfig, syncStrength };
+})();
+
+
+</script>
+<script>
+"use strict";
+/* ================= данные ================= */
+const COAST = [[612,357,622,353,632,359,645,363,656,373,671,374,681,370,695,376,704,381,715,379,718,367,733,375,750,374,741,368,729,367,718,365,715,357,711,347,699,340,693,325,689,316,677,313,664,307,650,295,636,295,609,298,618,307,609,315,605,330,608,344,612,357],[163,-59,169,-72,175,-81,185,-78,194,-72,206,-69,217,-73,219,-83,219,-95,222,-111,235,-109,239,-117,240,-129,219,-129,219,-161,226,-169,232,-175,214,-179,190,-178,142,-174,128,-169,117,-173,118,-158,121,-149,125,-135,133,-125,137,-113,134,-104,129,-92,129,-76,122,-63,134,-59,163,-59],[206,419,210,408,202,396,194,403,195,417,201,426,206,419],[516,242,534,242,547,248,554,254,561,261,564,249,558,243,552,231,520,230,516,240],[-655,-552,-670,-549,-686,-549,-686,-526,-678,-539,-665,-545,-650,-547],[-650,-221,-644,-228,-628,-220,-608,-239,-588,-248,-578,-252,-586,-271,-576,-274,-565,-275,-548,-266,-541,-255,-536,-269,-545,-275,-563,-289,-576,-302,-581,-320,-583,-333,-585,-344,-572,-353,-567,-364,-577,-382,-592,-387,-612,-389,-621,-394,-621,-407,-638,-412,-647,-408,-650,-421,-638,-420,-644,-429,-652,-435,-656,-450,-673,-456,-666,-470,-660,-481,-672,-487,-678,-499,-687,-503,-688,-518,-681,-523,-695,-521,-719,-520,-723,-507,-733,-504,-726,-489,-724,-477,-719,-469,-716,-456,-713,-444,-719,-434,-721,-423,-719,-408,-717,-398,-708,-386,-711,-376,-704,-360,-698,-342,-701,-331,-705,-314,-699,-303,-697,-285,-690,-275,-683,-269,-684,-245,-673,-240,-670,-230,-663,-218,-650,-221],[436,411,450,412,459,402,465,395,450,397,437,403],[-596,-800,-602,-810,-623,-809,-645,-809,-657,-806,-640,-803,-619,-804,-606,-796,-596,-800],[-1592,-795,-1611,-796,-1624,-793,-1637,-786,-1612,-784,-1602,-787,-1592,-795],[-452,-780,-439,-785,-434,-795,-449,-803,-465,-806,-484,-808,-505,-810,-529,-810,-542,-806,-519,-799,-504,-792,-493,-785,-482,-780,-467,-778,-452,-780],[-1212,-735,-1199,-737,-1187,-735,-1202,-741,-1216,-740,-1226,-737,-1212,-735],[-1256,-735,-1240,-739,-1259,-737,-1273,-735,-1256,-735],[-990,-719,-979,-721,-968,-720,-982,-725,-994,-724,-1008,-725,-1018,-723,-1004,-719,-990,-719],[-685,-710,-688,-722,-700,-723,-711,-725,-724,-725,-742,-724,-750,-717,-739,-713,-721,-712,-717,-703,-712,-690,-697,-693,-691,-701,-685,-710],[-586,-642,-598,-642,-613,-645,-625,-651,-621,-662,-637,-665,-649,-672,-657,-680,-648,-687,-632,-692,-626,-700,-618,-707,-614,-720,-607,-732,-614,-741,-633,-746,-644,-753,-659,-756,-672,-758,-684,-760,-698,-762,-706,-766,-722,-767,-740,-766,-756,-767,-772,-767,-754,-773,-743,-776,-765,-781,-779,-784,-768,-795,-754,-803,-732,-804,-714,-807,-700,-810,-682,-813,-657,-815,-633,-817,-616,-820,-597,-824,-587,-828,-570,-829,-554,-826,-536,-823,-515,-820,-498,-817,-473,-817,-448,-818,-428,-821,-408,-814,-382,-813,-363,-811,-344,-809,-323,-808,-301,-806,-285,-803,-297,-796,-316,-793,-337,-795,-356,-795,-358,-783,-339,-779,-322,-777,-310,-774,-298,-771,-289,-767,-275,-765,-262,-764,-239,-762,-225,-761,-212,-759,-200,-757,-189,-754,-175,-751,-166,-748,-157,-745,-165,-739,-154,-731,-144,-730,-133,-727,-123,-724,-110,-715,-91,-713,-74,-717,-69,-709,-55,-714,-43,-715,-30,-713,-18,-712,-2,-716,9,-713,30,-710,41,-709,52,-706,63,-705,77,-699,95,-700,108,-708,120,-706,134,-700,147,-700,159,-700,182,-699,204,-700,219,-704,237,-705,248,-705,271,-705,292,-702,310,-698,328,-694,339,-685,353,-690,372,-692,386,-698,397,-695,409,-689,420,-686,441,-683,457,-678,474,-677,483,-674,499,-671,509,-665,526,-661,545,-658,564,-660,573,-667,581,-670,599,-674,614,-680,632,-678,641,-674,660,-677,679,-679,697,-690,686,-699,679,-707,689,-711,679,-719,699,-723,710,-721,719,-713,731,-707,739,-699,756,-697,776,-695,784,-687,801,-681,815,-675,828,-672,847,-672,868,-672,880,-662,888,-670,906,-672,926,-672,942,-671,958,-674,978,-672,997,-672,1009,-666,1028,-656,1042,-660,1062,-669,1081,-670,1102,-667,1117,-661,1136,-659,1149,-664,1167,-667,1186,-672,1198,-673,1217,-669,1232,-665,1252,-667,1270,-666,1288,-668,1308,-664,1329,-664,1348,-662,1351,-653,1359,-660,1366,-668,1386,-669,1399,-669,1421,-668,1444,-668,1462,-672,1477,-681,1488,-684,1501,-686,1515,-687,1536,-689,1552,-688,1568,-694,1580,-695,1592,-696,1608,-702,1627,-707,1649,-708,1661,-708,1673,-708,1684,-710,1695,-712,1705,-714,1711,-721,1701,-729,1693,-737,1680,-738,1661,-744,1650,-751,1638,-759,1635,-771,1643,-778,1666,-783,1652,-789,1637,-791,1618,-792,1609,-797,1603,-806,1611,-813,1625,-821,1637,-824,1651,-827,1666,-830,1689,-833,1723,-840,1732,-844,1760,-842,1783,-845,1800,-847,-1799,-847,-1791,-841,-1773,-845,-1761,-841,-1744,-845,-1731,-841,-1700,-839,-1685,-842,-1670,-846,-1642,-848,-1619,-851,-1581,-854,-1552,-851,-1509,-853,-1485,-856,-1459,-853,-1431,-850,-1468,-845,-1501,-843,-1509,-839,-1536,-837,-1530,-828,-1545,-818,-1568,-811,-1544,-812,-1521,-810,-1506,-813,-1489,-810,-1472,-807,-1481,-797,-1495,-794,-1516,-793,-1534,-792,-1553,-791,-1573,-784,-1584,-769,-1570,-773,-1553,-772,-1537,-771,-1529,-775,-1513,-774,-1500,-772,-1487,-769,-1476,-766,-1461,-765,-1449,-752,-1428,-753,-1416,-751,-1402,-751,-1389,-750,-1375,-747,-1364,-745,-1352,-743,-1337,-744,-1323,-743,-1309,-745,-1296,-745,-1282,-743,-1269,-744,-1254,-745,-1240,-745,-1226,-745,-1211,-745,-1197,-745,-1187,-742,-1175,-740,-1162,-742,-1150,-741,-1139,-737,-1129,-744,-1113,-744,-1101,-748,-1087,-749,-1076,-752,-1061,-751,-1049,-749,-1034,-750,-1020,-751,-1006,-753,-1013,-742,-1025,-741,-1033,-734,-1016,-728,-1003,-728,-991,-729,-981,-732,-963,-736,-950,-735,-937,-733,-924,-732,-914,-734,-901,-733,-892,-726,-884,-730,-873,-732,-860,-731,-852,-735,-839,-735,-827,-736,-815,-739,-803,-731,-793,-735,-779,-734,-769,-736,-749,-739,-739,-737,-728,-734,-716,-733,-702,-731,-689,-730,-674,-725,-676,-712,-682,-705,-684,-693,-676,-685,-677,-673,-667,-666,-654,-659,-642,-652,-630,-646,-614,-643,-599,-640,-586,-634,-572,-635,-586,-642],[689,-486,705,-491,687,-498,689,-486],[1454,-408,1464,-411,1477,-408,1484,-421,1479,-432,1469,-436,1454,-427,1447,-412],[1436,-138,1446,-142,1454,-150,1455,-163,1462,-178,1464,-190,1475,-195,1488,-204,1493,-213,1497,-223,1509,-235,1516,-241,1529,-253,1532,-266,1536,-281,1533,-295,1531,-309,1525,-326,1517,-330,1510,-343,1503,-357,1499,-371,1483,-378,1474,-382,1463,-390,1455,-386,1445,-381,1436,-388,1422,-384,1406,-380,1400,-374,1396,-361,1381,-356,1382,-344,1368,-353,1375,-341,1378,-329,1370,-338,1360,-349,1352,-339,1346,-332,1330,-320,1313,-315,1295,-316,1282,-319,1271,-323,1251,-327,1240,-335,1228,-339,1213,-338,1199,-340,1190,-345,1180,-351,1166,-350,1156,-344,1150,-336,1157,-329,1157,-316,1152,-306,1150,-295,1146,-285,1140,-273,1135,-265,1142,-258,1137,-250,1135,-238,1137,-225,1146,-218,1159,-211,1172,-206,1182,-204,1193,-200,1209,-197,1217,-187,1223,-178,1230,-164,1234,-173,1238,-161,1249,-151,1257,-145,1266,-140,1278,-143,1290,-149,1299,-136,1306,-125,1317,-123,1326,-116,1344,-120,1359,-120,1370,-124,1363,-133,1358,-142,1363,-156,1376,-162,1383,-168,1393,-174,1402,-177,1411,-168,1414,-158,1416,-146,1417,-129,1419,-119,1425,-107,1429,-118,1435,-128],[170,481,162,469,151,467,138,465,124,468,112,469,99,469,105,476,121,477,129,483,136,489,149,490,160,487,170,481],[474,412,486,418,496,406,494,394,489,383,480,388,465,388,460,396,454,406,465,411],[293,-45,293,-33,299,-23,307,-30,301,-41],[33,513,50,515,62,508,57,495,48,500,36,504,27,508,33,513],[27,63,16,68,17,91,11,102,14,115,25,122,36,117,36,103,32,94,27,85,27,63],[-28,96,-40,99,-50,102,-55,110,-44,125,-40,135,-30,138,-22,142,-11,150,4,149,10,133,22,126,19,116,12,111,0,110,-12,110,-29,110,-28,96],[927,220,924,207,920,217,914,228,906,224,897,219,889,229,887,242,889,252,882,258,894,260,899,253,918,251,915,241,917,230,927,220],[227,442,241,437,256,437,272,442,286,437,277,426,261,418,252,412,237,413,229,420,230,432,224,440],[190,449,196,440,187,432,177,430,169,437,162,444,170,452,186,451],[235,539,255,543,266,552,282,562,292,559,309,556,314,542,324,536,315,532,318,521,306,518,293,514,282,516,263,518,246,519,235,516,232,525,238,531],[-891,178,-885,185,-882,175,-886,163,-892,170],[-628,-220,-644,-228,-650,-221,-663,-218,-671,-227,-682,-215,-688,-204,-684,-194,-691,-183,-690,-165,-694,-157,-689,-145,-689,-129,-695,-110,-683,-110,-672,-103,-653,-98,-654,-116,-643,-125,-632,-126,-621,-132,-611,-135,-605,-144,-602,-163,-582,-163,-577,-176,-577,-190,-582,-202,-591,-194,-618,-196,-623,-205,-627,-222],[-576,-302,-563,-289,-552,-279,-536,-269,-541,-255,-543,-240,-555,-236,-558,-224,-579,-221,-579,-207,-579,-194,-575,-182,-583,-173,-602,-163,-605,-151,-605,-138,-617,-135,-628,-130,-643,-125,-654,-116,-653,-98,-666,-99,-680,-107,-695,-110,-705,-95,-713,-101,-726,-95,-736,-84,-740,-75,-731,-66,-729,-53,-717,-46,-708,-43,-694,-16,-700,-2,-695,7,-698,17,-679,17,-671,11,-655,8,-646,13,-634,22,-644,31,-648,41,-631,38,-621,42,-610,45,-602,52,-598,44,-600,28,-596,18,-585,13,-577,17,-565,19,-556,24,-541,21,-526,25,-517,42,-505,19,-499,10,-507,2,-486,-2,-466,-9,-449,-16,-446,-27,-434,-24,-415,-29,-400,-29,-385,-37,-372,-48,-356,-51,-349,-67,-351,-90,-370,-110,-377,-122,-384,-130,-390,-138,-389,-157,-392,-172,-396,-183,-398,-196,-408,-209,-409,-219,-418,-224,-431,-230,-446,-234,-465,-241,-476,-249,-485,-259,-485,-272,-489,-287,-496,-292,-507,-310,-516,-318,-527,-332,-534,-338,-532,-327,-538,-320,-546,-315,-556,-309,-570,-301],[1142,45,1155,54,1153,43,1142,45],[917,278,920,268,904,269,888,271,895,280,907,281,917,278],[256,-185,262,-193,273,-204,280,-215,294,-221,280,-228,271,-236,265,-246,258,-252,250,-257,237,-254,226,-260,216,-267,208,-259,202,-249,199,-218,209,-183,232,-179,245,-179,256,-185],[153,74,163,78,180,79,189,86,201,90,210,95,217,106,229,111,236,101,235,90,246,82,251,75,262,65,272,56,264,52,251,49,233,46,224,40,209,43,195,50,185,42,178,36,165,32,160,23,154,33,150,42,146,50,145,62,153,74],[-637,466,-620,464,-629,460,-641,464],[-618,491,-636,494,-645,499,-629,497,-618,493],[-1235,485,-1257,488,-1269,495,-1281,500,-1273,506,-1258,503,-1249,495,-1239,491],[-561,507,-568,498,-555,499,-545,496,-535,492,-530,482,-531,467,-542,468,-554,469,-563,476,-593,476,-584,491,-574,507,-559,516,-561,507],[-1327,540,-1320,530,-1312,522,-1322,526,-1331,534],[-819,627,-831,622,-840,625,-833,629,-819,629],[-852,657,-839,651,-828,648,-816,645,-808,641,-825,637,-841,636,-855,631,-872,635,-864,640,-859,657],[-759,671,-772,676,-759,683,-751,676],[-956,691,-976,691,-998,694,-982,701,-972,699,-963,695],[-905,695,-892,693,-880,686,-874,672,-863,679,-856,688,-841,698,-826,697,-813,692,-820,681,-813,676,-833,664,-847,663,-858,666,-870,652,-885,641,-899,640,-907,636,-919,628,-932,620,-942,609,-947,589,-932,588,-928,578,-923,571,-909,573,-890,569,-880,565,-861,557,-850,553,-834,552,-824,543,-821,533,-814,522,-799,512,-786,526,-791,541,-798,547,-782,551,-771,558,-765,565,-773,581,-785,588,-773,599,-778,608,-781,623,-757,623,-738,624,-729,621,-717,615,-696,611,-693,590,-676,582,-662,588,-652,599,-638,594,-625,582,-614,570,-605,558,-596,552,-580,549,-569,538,-558,533,-564,518,-588,511,-600,502,-617,501,-639,503,-654,503,-672,495,-685,491,-700,477,-711,468,-687,483,-666,491,-651,492,-642,487,-651,481,-648,470,-632,457,-615,459,-605,470,-598,459,-610,453,-633,447,-642,443,-654,435,-662,445,-644,453,-660,453,-671,451,-678,457,-678,471,-689,472,-700,467,-707,455,-715,450,-733,450,-749,450,-764,441,-777,436,-792,435,-802,424,-824,417,-829,424,-821,436,-826,453,-836,458,-841,465,-857,472,-874,479,-884,483,-896,480,-908,483,-926,485,-943,487,-948,494,-972,490,-1007,490,-1040,490,-1070,490,-1100,490,-1130,490,-1160,490,-1200,490,-1228,490,-1249,500,-1274,508,-1280,517,-1291,528,-1305,543,-1300,553,-1317,566,-1327,577,-1334,584,-1343,589,-1355,598,-1365,595,-1375,589,-1383,596,-1400,603,-1410,660,-1410,697,-1391,695,-1375,690,-1356,693,-1344,696,-1329,695,-1314,699,-1298,702,-1284,700,-1274,704,-1258,695,-1244,702,-1231,696,-1215,698,-1199,694,-1176,690,-1162,688,-1139,684,-1153,679,-1135,677,-1108,678,-1089,674,-1078,679,-1088,683,-1070,687,-1053,686,-1043,680,-1015,676,-999,678,-984,678,-977,686,-961,682,-947,681,-942,691,-953,697,-965,701,-952,719,-939,718,-929,713,-915,702,-924,697,-905,695],[-1142,731,-1124,730,-1111,725,-1099,730,-1090,726,-1082,717,-1084,731,-1065,731,-1054,727,-1048,717,-1028,705,-1010,700,-1027,695,-1042,689,-1060,692,-1071,691,-1090,688,-1115,686,-1133,685,-1152,693,-1173,700,-1151,702,-1137,702,-1124,704,-1143,706,-1165,705,-1179,705,-1161,713,-1177,713,-1194,716,-1186,723,-1152,733,-1142,731],[-1045,734,-1054,728,-1069,735,-1053,736],[-763,731,-773,729,-795,727,-809,733,-781,737,-763,731],[-866,732,-858,725,-849,733,-823,738,-806,727,-788,724,-778,727,-756,722,-742,718,-722,716,-712,709,-688,705,-679,701,-670,692,-688,687,-664,681,-649,678,-634,669,-619,669,-639,650,-651,654,-667,664,-680,663,-671,651,-657,646,-647,634,-663,629,-688,637,-674,629,-663,623,-689,623,-710,629,-722,634,-734,642,-748,647,-777,642,-779,653,-760,653,-740,655,-727,673,-733,681,-748,686,-769,689,-773,698,-790,702,-813,697,-849,700,-871,703,-887,704,-899,712,-902,722,-894,731,-884,735,-858,738,-866,732],[-1004,738,-992,736,-974,738,-981,730,-965,726,-984,713,-1000,717,-1025,725,-1004,727,-1015,734,-1004,738],[-932,728,-943,720,-960,729,-955,739,-945,741,-924,741,-905,739,-920,730,-932,728],[-1205,714,-1231,709,-1259,719,-1248,730,-1239,737,-1249,743,-1215,744,-1201,742,-1176,742,-1166,739,-1155,735,-1168,732,-1192,725,-1205,718],[-936,750,-956,747,-968,749,-949,756,-940,753],[-985,767,-977,763,-982,750,-998,749,-1009,751,-1025,756,-1015,763,-1000,766,-986,766],[-1082,762,-1069,760,-1057,755,-1097,748,-1122,744,-1137,744,-1118,752,-1163,750,-1177,752,-1163,762,-1154,765,-1126,761,-1108,755,-1091,755,-1105,764,-1096,768,-1082,762],[-947,771,-936,768,-916,768,-910,761,-898,758,-878,756,-864,755,-848,757,-828,758,-811,757,-801,753,-819,744,-832,746,-861,744,-882,744,-898,745,-924,748,-929,759,-939,763,-960,764,-971,768,-947,771],[-1162,776,-1171,765,-1199,761,-1215,759,-1229,761,-1212,769,-1191,775,-1176,775,-1162,776],[-1102,777,-1121,774,-1135,777,-1113,782,-1099,780],[-1097,786,-1109,784,-1125,784,-1115,788,-1097,786],[-958,781,-973,779,-986,785,-973,788,-956,784],[-1001,783,-1013,780,-1029,783,-1052,784,-1042,787,-1054,789,-1035,792,-1008,788,-1001,783],[-870,797,-858,793,-872,790,-890,783,-908,782,-929,783,-940,788,-931,794,-950,794,-961,797,-953,809,-924,813,-911,807,-895,805,-878,803,-870,797],[-685,831,-658,830,-637,829,-619,826,-643,819,-668,817,-655,815,-678,809,-695,806,-712,798,-732,796,-769,793,-755,792,-763,782,-779,779,-798,772,-779,770,-806,762,-832,765,-861,763,-876,764,-895,765,-878,772,-883,779,-850,775,-863,782,-880,784,-854,790,-865,797,-842,802,-818,805,-841,806,-876,805,-894,809,-902,813,-914,816,-901,821,-889,821,-870,823,-855,827,-843,826,-832,823,-824,829,-811,830,-793,831,-762,832,-728,832,-707,832,-685,831],[96,475,104,469,92,464,78,458,65,464,67,475,83,476,96,475],[-686,-526,-686,-549,-670,-549,-681,-556,-700,-552,-723,-545,-733,-540,-747,-528,-724,-537,-711,-541,-703,-529,-693,-525],[-682,-215,-678,-229,-673,-240,-684,-245,-684,-262,-690,-275,-697,-285,-700,-294,-705,-314,-701,-331,-698,-342,-704,-352,-711,-367,-708,-386,-717,-398,-719,-408,-717,-421,-719,-434,-713,-444,-716,-456,-719,-469,-724,-477,-726,-489,-734,-493,-730,-507,-723,-514,-695,-521,-708,-529,-714,-539,-726,-535,-737,-528,-749,-523,-750,-510,-756,-487,-752,-477,-741,-469,-756,-466,-747,-458,-744,-441,-732,-445,-727,-424,-737,-434,-740,-418,-737,-399,-735,-383,-736,-372,-726,-355,-719,-339,-714,-324,-717,-309,-715,-289,-709,-276,-707,-257,-704,-236,-701,-214,-702,-198,-704,-183,-696,-176,-690,-190,-688,-204,-682,-215],[1103,187,1095,182,1086,194,1102,201,1110,197,1103,187],[1277,498,1294,494,1306,487,1310,478,1325,478,1334,482,1350,485,1345,476,1338,461,1331,451,1319,453,1310,450,1311,429,1300,430,1281,420,1269,418,1262,411,1251,406,1243,399,1229,396,1221,392,1211,389,1222,404,1208,406,1196,399,1190,393,1175,387,1181,381,1189,374,1208,379,1217,375,1225,369,1211,367,1197,356,1192,349,1202,344,1206,334,1212,325,1219,317,1213,307,1221,298,1217,282,1204,271,1196,257,1187,245,1173,236,1159,228,1148,227,1132,221,1118,216,1108,214,1104,203,1096,210,1085,217,1070,218,1067,228,1053,234,1045,228,1027,227,1017,223,1018,212,1012,218,1000,217,995,229,987,241,976,239,977,251,987,259,987,275,979,283,962,284,954,290,934,286,925,279,913,280,900,283,888,273,881,279,870,280,858,282,850,286,839,293,823,301,811,302,797,309,787,315,785,326,788,335,778,355,762,359,752,371,749,384,737,394,748,404,765,404,782,412,801,421,809,432,800,449,819,453,832,473,852,470,858,485,874,492,880,486,889,481,903,477,910,469,906,457,921,451,935,450,947,444,958,433,975,427,995,425,1008,427,1033,419,1045,419,1061,421,1077,425,1092,425,1104,429,1111,434,1117,441,1119,451,1135,448,1145,453,1160,457,1167,464,1189,468,1181,481,1163,479,1162,491,1167,499,1179,495,1193,501,1202,516,1207,525,1222,534,1236,535,1251,532,1259,528,1266,518,1273,507,1277,498],[-29,50,-40,52,-58,50,-75,43,-76,57,-83,62,-85,74,-82,85,-83,98,-69,101,-54,104,-43,96,-28,96,-26,82,-30,74,-32,63,-28,54],[131,23,118,23,96,23,94,37,87,44,92,64,101,70,111,66,118,74,122,83,130,94,136,108,144,116,142,128,149,122,149,109,155,100,142,100,145,90,154,77,148,64,145,55,150,42,154,33,159,26,151,20,131,23],[308,35,308,23,301,11,298,-2,296,-13,291,-23,293,-45,294,-59,302,-71,307,-83,290,-84,284,-92,285,-108,286,-120,297,-133,285,-127,274,-121,258,-118,248,-112,235,-109,222,-111,222,-99,218,-89,217,-73,205,-73,194,-72,190,-80,175,-81,169,-72,163,-59,134,-59,123,-61,126,-50,136,-45,146,-50,152,-43,160,-35,164,-17,175,-7,178,3,179,17,184,29,185,42,195,50,209,43,224,40,233,46,244,51,257,53,270,51,280,44,297,46,308,35],[130,-48,119,-50,111,-40,119,-34,125,-24,140,-25,144,-13,138,0,143,12,130,18,143,22,159,17,165,32,178,36,184,29,179,17,178,3,175,-7,164,-17,160,-27,158,-39,146,-50,136,-45],[-754,-2,-763,4,-777,8,-789,14,-784,26,-775,33,-773,47,-775,67,-778,77,-774,87,-761,93,-755,106,-743,111,-726,117,-718,124,-722,111,-729,105,-733,92,-724,84,-722,73,-707,71,-694,61,-677,63,-678,45,-673,35,-672,23,-669,13,-675,20,-698,17,-692,10,-700,5,-696,-5,-699,-43,-707,-37,-700,-27,-708,-23,-723,-24,-737,-13,-744,-5,-754,-2],[-830,82,-836,88,-843,95,-850,101,-857,108,-847,111,-834,104,-825,96,-828,86],[-823,232,-806,231,-797,228,-783,225,-771,217,-762,212,-749,207,-743,201,-756,199,-778,199,-771,204,-781,207,-787,216,-802,218,-818,222,-828,227,-835,222,-845,218,-838,228,-825,231],[327,351,346,357,340,351,327,351],[340,351,330,346,323,351,335,351],[170,486,153,490,143,486,130,493,124,500,133,507,143,511,155,508,167,502,184,500,181,490,171,488],[99,550,110,544,125,545,136,541,144,532,147,521,150,511,133,507,122,503,130,493,130,476,114,475,104,473,85,478,75,476,81,490,67,492,60,501,60,519,68,522,69,535,79,537,86,544,99,550],[431,127,427,117,418,111,420,121,431,127],[127,556,121,548,110,554,124,561],[109,565,96,555,85,550,81,565,94,572,106,577,104,566],[-717,197,-702,196,-692,193,-683,186,-696,184,-710,183,-719,186,-717,197],[120,235,86,216,57,196,43,192,32,191,27,199,18,206,-16,228,-49,250,-87,274,-87,288,-71,296,-52,300,-37,309,-31,317,-13,323,-17,339,-22,352,-12,357,-1,359,15,366,32,368,48,369,63,371,77,369,84,355,75,341,84,327,91,321,95,303,98,294,97,281,97,265,99,254,103,244,116,241],[-803,-34,-798,-27,-810,-22,-809,-11,-804,-3,-801,8,-789,14,-779,8,-766,3,-754,-2,-755,-16,-766,-26,-778,-30,-785,-39,-792,-50,-800,-43,-803,-34],[349,295,344,283,339,276,331,284,324,299,327,287,333,277,341,261,348,250,357,239,367,222,329,220,290,220,250,220,250,257,250,292,250,307,265,316,275,313,285,310,297,312,310,316,320,309,338,310,349,295],[424,125,416,135,409,141,400,145,385,145,376,142,364,144,368,163,372,173,384,180,390,168,398,154,412,145,423,133,431,127],[-90,419,-94,430,-80,437,-68,436,-54,436,-43,434,-19,434,3,426,18,423,30,425,21,412,8,410,1,401,1,387,-7,376,-21,367,-34,367,-50,363,-62,364,-75,371,-70,381,-75,396,-69,403,-64,414,-73,419,-83,423],[243,578,234,586,246,595,259,596,269,594,281,593,274,587,277,578,265,575,256,578,243,578],[379,150,391,147,409,141,416,135,424,125,417,116,423,110,429,100,437,92,469,80,450,50,437,50,428,43,419,39,408,43,399,38,389,35,369,44,358,48,353,55,347,66,341,72,330,78,338,84,340,96,343,106,348,113,359,126,363,136,376,142],[286,691,300,677,291,669,302,658,295,649,304,642,315,629,302,618,281,605,263,604,245,601,229,598,213,607,215,617,211,626,224,638,247,649,239,660,235,679,220,686,206,691,224,688,237,689,247,686,257,691,262,698,277,702,290,698],[1784,-173,1779,-183,1773,-177,1784,-173],[-612,-519,-600,-512,-585,-511,-578,-515,-594,-522,-607,-523],[36,504,48,500,57,495,67,492,81,490,75,476,60,467,68,460,70,443,65,431,46,434,31,431,18,423,7,428,-15,430,-12,460,-22,471,-30,476,-45,480,-33,489,-16,486,-19,498,-10,493,13,501,25,511,36,504],[111,-40,101,-30,94,-21,88,-11,93,3,98,11,113,11,113,23,130,23,133,13,138,0,144,-13,140,-25,126,-19,118,-25,111,-40],[-57,546,-62,539,-76,541,-67,552,-57,546],[-30,586,-41,576,-20,577,-31,560,-20,558,-11,546,2,533,17,527,11,518,6,508,-8,508,-25,505,-36,502,-52,500,-43,512,-53,520,-42,523,-46,535,-31,534,-36,546,-48,548,-56,553,-61,568,-58,578,-50,586,-30,586],[416,415,415,426,403,431,424,432,438,427,455,425,464,419,452,414,436,411,426,416],[11,59,-5,53,-20,47,-28,54,-32,63,-30,74,-26,82,-28,96,-29,110,-12,110,0,110,4,95,7,83,6,69,11,59],[-84,77,-98,85,-107,90,-111,100,-122,99,-132,89,-141,99,-147,107,-141,117,-137,126,-125,123,-115,121,-102,118,-93,123,-84,114,-80,102,-78,86,-83,77],[-168,132,-156,136,-144,136,-155,133,-168,132],[-151,110,-161,115,-167,124,-155,126,-137,126,-141,117,-151,110],[95,10,96,23,113,23,113,11,98,11],[237,357,250,354,263,353,247,349,235,353],[266,416,261,408,249,409,237,407,244,401,233,400,230,390,240,382,231,379,232,364,217,368,211,383,202,393,207,404,217,409,228,413,245,416,261,413],[-468,826,-434,832,-399,832,-386,835,-351,836,-271,835,-208,827,-227,823,-265,823,-319,822,-279,821,-248,818,-229,821,-232,812,-206,815,-158,819,-128,817,-163,806,-200,802,-177,801,-189,794,-197,788,-185,770,-200,769,-217,766,-198,761,-207,752,-194,743,-216,742,-204,738,-222,733,-236,733,-223,726,-243,726,-234,721,-221,715,-235,705,-255,714,-264,702,-237,702,-223,701,-250,693,-277,685,-307,681,-328,677,-342,667,-364,660,-384,657,-398,655,-407,648,-412,635,-428,627,-429,611,-434,601,-448,600,-463,609,-483,609,-492,614,-499,624,-516,636,-523,652,-537,661,-540,672,-530,684,-515,687,-509,699,-520,696,-535,693,-547,696,-544,708,-514,706,-531,712,-540,715,-558,717,-547,726,-561,736,-573,747,-586,751,-613,761,-634,762,-661,761,-685,761,-697,764,-714,770,-688,773,-668,774,-710,776,-733,780,-694,789,-657,794,-680,801,-672,805,-637,812,-622,813,-603,820,-572,822,-541,822,-530,819,-504,824,-480,821,-466,820,-445,817,-469,822],[-901,137,-912,139,-922,145,-917,161,-905,161,-911,169,-901,178,-892,170,-892,159,-891,147,-901,139],[-526,25,-534,21,-545,23,-542,32,-544,42,-540,58,-529,54,-518,46,-522,32],[-598,84,-585,73,-575,63,-573,51,-580,41,-573,33,-565,19,-577,17,-585,13,-596,18,-600,28,-595,40,-600,50,-614,60,-605,69,-598,84],[-873,130,-877,138,-888,141,-892,151,-882,157,-869,158,-857,160,-845,159,-834,153,-842,147,-852,144,-861,140,-867,133],[188,459,194,452,179,451,165,452,165,440,173,434,186,426,175,428,160,435,152,442,143,452,153,455,158,462,169,464,185,458],[-732,199,-717,197,-719,186,-728,181,-745,183,-727,184,-734,196],[162,469,169,477,187,479,197,483,208,486,219,483,227,479,216,470,210,463,196,462,185,458,169,464],[1244,-101,1240,-93,1250,-89,1244,-101],[1179,-81,1191,-87,1180,-89,1167,-90,1176,-84],[1229,-81,1213,-89,1199,-88,1207,-82,1220,-85,1229,-81],[1086,-68,1105,-69,1126,-69,1145,-78,1157,-84,1146,-88,1135,-83,1115,-83,1094,-77,1065,-74,1054,-69,1061,-59,1073,-60,1085,-64],[1305,-31,1292,-34,1279,-34,1294,-28,1305,-31],[1341,-12,1344,-28,1355,-34,1363,-23,1374,-17,1392,-21,1410,-26,1410,-59,1410,-91,1401,-83,1391,-81,1376,-84,1380,-76,1384,-62,1379,-54,1360,-45,1337,-35,1330,-41,1320,-28,1331,-25,1318,-16,1305,-9,1319,-7,1340,-8],[1252,14,1244,4,1227,4,1211,4,1200,-5,1209,-14,1233,-6,1224,-15,1215,-19,1225,-32,1232,-47,1226,-56,1227,-45,1217,-49,1209,-36,1203,-29,1204,-41,1204,-55,1194,-54,1197,-45,1191,-35,1192,-21,1198,2,1209,13,1229,9,1251,16],[1287,11,1281,4,1284,-8,1274,10,1279,22,1286,15],[1179,18,1190,9,1178,8,1175,-8,1166,-15,1161,-40,1149,-41,1138,-34,1121,-35,1110,-30,1101,-16,1091,-5,1091,13,1097,20,1105,8,1118,9,1129,15,1138,12,1151,28,1159,43,1179,41,1173,32,1180,23],[1058,-59,1039,-50,1026,-42,1014,-28,1009,-21,1001,-7,993,2,986,18,977,25,972,33,964,39,954,50,975,52,984,43,991,36,1006,21,1025,14,1031,6,1038,1,1034,-7,1044,-11,1049,-23,1061,-31,1059,-43,1058,-59],[778,355,789,343,792,330,787,315,797,309,811,302,801,288,811,284,820,279,833,274,847,272,860,266,872,264,882,268,887,281,897,267,912,268,921,275,934,286,946,293,961,295,973,283,971,271,951,266,946,252,941,239,933,230,927,220,921,236,924,250,909,251,898,260,886,264,889,252,881,245,885,236,890,221,870,215,865,202,851,195,839,183,832,177,822,170,817,163,808,160,800,151,802,138,799,121,799,104,789,95,783,89,775,80,766,89,761,103,757,113,749,127,746,140,735,160,731,179,728,192,728,204,712,208,692,221,682,237,688,244,710,244,703,257,695,269,706,280,718,279,728,290,735,300,744,310,753,323,745,328,737,343,758,345,769,347,778,355],[-62,539,-68,523,-86,517,-100,518,-92,529,-97,539,-83,547,-76,551,-70,541],[539,372,555,380,566,381,584,375,604,365,612,357,608,344,605,330,609,315,618,307,609,298,618,287,627,283,632,272,619,262,615,251,596,254,585,256,574,257,570,270,557,270,547,265,535,268,525,276,515,279,509,288,501,301,489,303,480,310,473,325,461,330,454,340,462,351,454,360,448,372,442,380,441,394,455,389,477,395,486,383,492,376,508,369,523,367,538,370],[454,360,462,351,454,340,461,330,473,325,478,317,480,305,466,291,447,292,419,312,404,319,392,322,388,334,410,344,414,356,418,366,428,374,439,373,454,360],[-145,665,-136,651,-149,644,-178,637,-200,636,-228,640,-218,644,-240,649,-222,651,-243,656,-237,663,-221,664,-206,657,-191,663,-178,660,-162,665,-145,665],[357,327,350,319,354,311,349,295,343,312,348,321,351,331],[155,382,153,371,138,371,124,376,137,380,155,382],[92,412,98,405,97,392,84,392,84,404,92,412],[124,468,138,465,131,457,124,449,135,436,140,428,151,420,162,417,175,409,184,404,169,404,172,394,161,380,157,395,150,402,141,408,129,413,121,417,112,424,105,429,102,439,89,444,79,438,70,443,68,457,83,462,99,463,110,468,122,471],[-776,185,-764,182,-772,177,-783,182],[355,324,368,323,388,334,392,322,370,315,380,305,367,299,361,292,350,294,354,311,355,324],[1346,341,1342,332,1330,327,1324,335,1335,339,1346,341],[1410,371,1408,358,1403,351,1390,347,1372,346,1358,335,1351,346,1333,344,1322,339,1313,315,1304,323,1294,333,1304,336,1319,347,1326,354,1346,357,1357,355,1367,373,1389,378,1401,394,1399,406,1414,414,1419,400,1410,382],[1439,442,1453,444,1455,433,1441,430,1432,420,1416,427,1411,416,1398,426,1403,433,1417,448,1431,445],[710,423,691,414,683,407,667,412,660,420,649,437,632,437,620,435,611,444,587,455,559,450,560,413,548,420,529,421,513,431,509,440,513,452,530,453,530,469,512,470,500,466,486,466,481,477,465,484,470,492,475,505,486,499,508,517,523,517,545,510,557,506,568,510,584,511,596,505,613,508,600,520,609,524,617,530,610,537,652,544,682,550,691,554,709,552,712,541,722,544,735,540,744,535,769,545,778,534,800,509,819,508,834,511,844,503,855,497,868,498,866,485,857,475,832,473,825,455,800,449,809,432,803,423,791,429,777,430,760,430,742,433,735,425,718,428,710,423],[410,-9,416,-17,406,-25,401,-33,396,-43,378,-37,341,-11,339,1,347,12,346,31,340,42,346,48,353,55,358,48,369,44,381,36,396,34,408,43,419,39,410,28,410,-9],[710,423,718,428,735,425,742,433,756,429,777,430,791,429,803,423,785,416,769,411,755,406,738,399,718,393,705,396,696,401,706,399,718,401,731,409,719,414,704,415,713,422],[1035,106,1026,122,1023,134,1030,142,1043,144,1060,139,1074,142,1075,123,1058,116,1052,109,1043,105],[1283,386,1292,374,1295,356,1282,349,1274,345,1264,349,1261,367,1262,378,1271,383,1282,384],[208,421,201,426,208,433,216,427,208,421],[480,300,484,286,475,290,473,301],[1052,143,1056,156,1048,164,1040,182,1030,180,1011,175,1013,195,1005,201,1012,214,1017,223,1028,217,1032,208,1044,208,1048,199,1039,193,1051,187,1059,175,1066,166,1073,159,1074,142,1065,146,1052,143],[-77,44,-90,48,-99,56,-108,61,-114,68,-107,79,-98,85,-94,75,-84,69,-76,57,-77,44],[149,229,136,230,120,235,108,246,99,254,93,261,96,271,99,290,95,303,101,310,106,318,114,324,127,328,139,327,152,323,157,314,180,308,191,303,201,310,201,322,215,328,229,326,239,320,252,316,247,300,250,257,250,220,250,200,238,196,198,215,159,234,149,229],[818,75,812,62,799,68,797,82,801,98,808,93,818,75],[290,-290,288,-301,281,-305,270,-299,281,-289],[227,543,213,552,222,563,239,563,250,562,265,556,258,548,245,539,232,542],[211,560,216,574,225,578,233,570,243,578,256,578,265,575,278,572,282,562,271,558,255,561,239,563,222,563,211,560],[-52,358,-36,354,-26,352,-18,345,-14,329,-26,321,-36,316,-49,305,-61,297,-87,288,-88,277,-97,269,-114,269,-120,260,-125,248,-139,237,-142,223,-148,215,-170,214,-163,227,-160,237,-151,245,-148,256,-138,266,-131,276,-117,281,-109,288,-96,299,-98,312,-94,320,-87,332,-77,337,-62,351,-52,358],[266,482,283,482,291,475,299,467,289,464,285,456,281,468,272,478],[495,-125,501,-136,502,-148,502,-160,498,-169,494,-180,490,-191,485,-205,479,-224,475,-238,471,-249,454,-256,440,-250,437,-236,433,-221,439,-212,444,-201,442,-190,440,-174,444,-162,455,-160,469,-152,477,-146,483,-138,488,-131,492,-120],[-971,259,-975,250,-978,229,-974,214,-965,199,-959,188,-948,186,-935,184,-920,187,-908,193,-905,207,-896,213,-885,215,-871,215,-874,203,-876,190,-883,185,-890,180,-901,178,-910,173,-904,164,-917,161,-922,153,-934,156,-947,162,-961,158,-973,159,-989,166,-1008,172,-1017,176,-1035,183,-1050,193,-1057,204,-1053,214,-1057,223,-1069,238,-1079,245,-1093,256,-1098,267,-1106,279,-1118,285,-1123,293,-1128,300,-1131,312,-1142,315,-1147,302,-1136,291,-1130,284,-1125,275,-1116,267,-1113,257,-1107,248,-1098,238,-1100,228,-1109,240,-1117,245,-1121,255,-1128,263,-1138,269,-1151,277,-1142,281,-1149,293,-1159,302,-1167,316,-1171,325,-1160,326,-1147,327,-1133,320,-1110,313,-1090,313,-1082,318,-1065,318,-1056,311,-1047,301,-1039,293,-1025,298,-1010,294,-1001,281,-993,268,-982,261,-971,259],[206,419,216,422,229,420,221,411,210,408,205,415],[-122,146,-117,154,-107,151,-96,155,-55,155,-60,206,-65,250,-49,250,-16,228,18,206,27,199,32,191,43,192,43,169,37,162,27,154,14,153,4,149,-11,150,-20,146,-30,138,-40,135,-44,125,-52,117,-54,104,-67,104,-76,101,-83,108,-88,118,-99,121,-110,122,-116,131,-121,140],[995,202,983,197,978,186,985,168,985,153,991,138,996,119,990,110,986,99,988,114,985,131,978,148,976,161,972,169,954,157,942,160,945,173,935,194,924,207,927,220,933,230,941,239,946,247,952,260,964,273,974,279,987,275,987,259,977,251,976,239,987,241,995,229,1000,217,1012,218,1003,208,995,202],[198,425,184,425,190,434,200,431],[878,493,888,495,907,503,922,508,941,505,958,500,973,497,982,504,989,520,1000,516,1021,513,1037,501,1059,504,1079,498,1094,493,1107,491,1129,495,1144,502,1155,498,1167,499,1162,491,1155,481,1173,477,1189,477,1198,470,1174,467,1160,457,1145,453,1135,448,1124,450,1113,445,1111,434,1104,429,1092,425,1077,425,1061,421,1050,416,1033,419,1018,425,995,425,975,427,958,433,953,442,935,450,921,451,909,453,910,469,903,477,889,481,880,486],[346,-115,365,-117,378,-113,395,-109,403,-103,404,-118,406,-142,405,-154,395,-167,385,-171,374,-176,363,-187,352,-196,347,-205,352,-213,356,-221,354,-235,350,-245,330,-254,328,-267,320,-263,319,-244,312,-223,322,-211,327,-203,327,-187,328,-167,319,-163,303,-159,302,-148,332,-140,341,-144,343,-155,350,-168,358,-159,357,-146,349,-136,343,-123],[-122,146,-128,153,-134,160,-146,166,-156,164,-165,167,-161,181,-164,196,-171,210,-129,213,-131,228,-119,234,-120,259,-87,259,-87,274,-49,250,-65,250,-60,206,-55,163,-96,155,-107,151,-117,154,-122,146],[346,-115,346,-136,357,-146,358,-159,350,-168,344,-162,345,-150,338,-145,327,-137,330,-128,331,-116,335,-105,328,-92,339,-97,346,-115],[1011,62,1024,61,1034,49,1034,34,1039,25,1042,16,1026,20,1014,28,1007,39,1002,53,1001,65,1011,62],[1186,45,1170,43,1155,32,1146,14,1129,15,1118,9,1105,8,1098,13,1112,19,1118,29,1130,31,1137,39,1149,43,1155,54,1162,61,1167,69,1176,64,1183,57,1191,50],[163,-286,156,-278,150,-261,144,-239,144,-227,139,-217,134,-209,128,-197,118,-181,122,-171,135,-170,183,-173,214,-179,232,-175,247,-174,236,-183,217,-182,209,-218,199,-248,199,-285,190,-290,178,-289,168,-281],[1658,-211,1666,-217,1648,-211,1642,-204,1655,-208],[22,119,10,129,4,140,10,150,27,154,37,162,43,169,43,192,57,196,86,216,120,235,136,230,149,229,151,213,159,204,153,179,152,166,140,157,135,144,140,134,123,130,110,134,95,129,78,133,68,131,54,139,41,135,37,126,25,122],[85,48,75,44,59,43,50,56,43,63,27,63,27,79,29,91,37,101,36,113,37,126,41,135,54,139,64,135,73,131,90,128,101,133,115,133,131,136,140,125,144,116,136,108,132,96,128,87,121,78,111,66,101,70,92,64,88,55],[-857,111,-865,118,-872,125,-867,133,-861,140,-852,144,-842,147,-831,150,-834,140,-835,124,-839,114,-849,110],[61,535,71,531,66,519,62,508,50,515,33,513,47,531,61,535],[282,712,313,705,300,702,311,696,294,692,277,702,262,698,257,691,247,686,237,689,224,688,212,694,200,691,180,686,168,680,161,673,151,662,136,648,126,641,119,631,120,618,123,601,115,594,84,583,70,581,57,586,53,597,50,620,59,626,86,635,105,645,124,659,148,678,164,686,192,698,214,703,230,702,245,710,264,710,282,712],[247,779,225,774,207,777,229,785,247,779],[183,797,215,790,190,786,185,778,171,768,159,768,138,774,147,777,132,780,112,789,104,797,132,800,151,797,170,801,183,797],[254,804,274,801,259,795,230,794,201,796,185,799,174,803,205,806,219,804,229,807,254,804],[881,279,881,264,860,266,847,272,833,274,820,279,811,284,801,288,805,297,815,304,833,295,842,288,858,282,870,280,881,279],[1730,-409,1742,-413,1739,-422,1732,-430,1723,-439,1715,-442,1706,-459,1698,-464,1684,-466,1667,-462,1670,-451,1683,-441,1697,-436,1705,-430,1716,-418,1721,-410],[1746,-362,1753,-372,1768,-379,1780,-376,1783,-386,1772,-391,1769,-401,1760,-413,1747,-413,1752,-405,1738,-395,1746,-388,1747,-374,1743,-365,1731,-352,1743,-353],[589,211,580,205,578,191,566,186,557,179,548,170,536,167,528,173,520,190,550,200,557,220,552,231,560,241,564,249,574,239,587,236,595,227,593,214],[752,371,759,367,778,355,769,347,758,345,742,347,741,334,753,323,744,317,735,300,728,290,718,279,706,280,695,269,703,257,710,244,688,244,682,237,671,247,664,254,645,252,629,252,615,251,619,262,633,268,627,283,618,287,609,298,625,293,641,293,663,299,669,313,686,317,693,325,703,334,712,343,716,352,713,361,729,367,741,368,752,371],[-779,72,-784,81,-791,90,-802,83,-804,73,-815,77,-824,83,-829,91,-818,90,-805,91,-796,96,-785,94,-777,89,-772,79,-779,72],[-696,-176,-704,-183,-714,-178,-734,-164,-752,-153,-760,-146,-764,-138,-771,-122,-781,-104,-790,-84,-798,-72,-805,-65,-809,-57,-814,-47,-803,-34,-800,-43,-792,-50,-785,-39,-778,-30,-766,-26,-755,-16,-754,-2,-744,-5,-737,-13,-731,-23,-718,-22,-700,-27,-707,-37,-699,-43,-717,-46,-729,-53,-731,-66,-737,-73,-736,-84,-732,-95,-722,-101,-705,-95,-705,-110,-687,-126,-689,-136,-693,-150,-690,-165,-696,-176],[1264,84,1265,72,1262,63,1258,73,1257,60,1242,62,1242,74,1228,75,1221,69,1223,80,1235,87,1246,85,1255,90,1264,84],[1240,103,1233,93,1224,97,1229,109,1241,112],[1185,93,1172,84,1184,97,1190,104,1195,114,1190,100,1185,93],[1219,119,1231,116,1226,107,1220,114],[1255,122,1258,110,1248,101,1243,115,1252,125],[1213,185,1223,182,1225,171,1217,159,1217,143,1240,138,1241,125,1233,130,1220,138,1206,139,1201,150,1199,164,1204,176,1207,185],[1520,-55,1508,-61,1497,-63,1483,-57,1498,-55,1511,-51,1515,-42,1523,-49],[1472,-74,1481,-80,1487,-91,1500,-97,1508,-103,1489,-103,1471,-95,1460,-81,1447,-76,1433,-82,1426,-93,1410,-91,1410,-59,1410,-26,1427,-33,1446,-39,1453,-44,1460,-55,1476,-61,1470,-67],[1531,-45,1524,-38,1514,-30,1526,-37,1531,-45],[150,511,147,521,141,530,148,541,164,545,176,549,187,544,209,543,227,543,235,535,232,525,235,516,240,507,225,495,209,493,193,496,184,500,176,504,162,504,150,511],[1306,424,1297,416,1292,407,1280,400,1274,392,1283,386,1271,383,1262,378,1250,379,1254,394,1243,399,1251,406,1262,411,1269,418,1282,415,1296,424],[-90,419,-74,418,-64,414,-69,403,-75,396,-74,384,-75,371,-89,369,-88,383,-94,394,-90,402,-88,412],[-627,-222,-623,-211,-618,-196,-600,-193,-582,-199,-579,-221,-569,-223,-556,-227,-554,-240,-543,-246,-546,-257,-557,-274,-576,-274,-586,-271,-576,-256,-588,-248,-600,-240,-627,-222],[508,248,510,260,516,252,508,248],[227,479,244,480,259,480,272,478,281,468,282,455,296,453,286,437,272,442,261,439,241,437,229,438,225,447,215,452,208,457,216,470,227,479],[1436,507,1447,490,1432,493,1426,479,1435,468,1421,460,1420,478,1421,496,1422,510,1416,519,1417,533,1426,538,1433,527,1436,507],[227,543,209,543,197,544,213,552,223,550],[-1750,666,-1719,669,-1699,660,-1709,655,-1725,654,-1730,643,-1747,646,-1760,649,-1772,655,-1784,654,-1799,659,-1800,690,-1776,682,-1749,672],[-1787,709,-1800,708,-1790,716,-1776,713,-1787,709],[1436,732,1421,732,1400,733,1408,738,1421,739,1435,735],[1507,751,1496,747,1480,748,1461,752,1482,753,1507,751],[1451,756,1443,748,1406,748,1390,746,1370,753,1375,759,1388,761,1415,761,1451,756],[575,707,537,708,516,715,525,722,544,736,559,746,579,756,612,763,645,764,662,768,682,769,646,757,616,753,585,743,570,733,554,724,575,707],[1070,770,1082,767,1111,767,1133,762,1139,753,1128,750,1102,745,1121,738,1135,733,1156,738,1188,736,1232,730,1254,736,1270,736,1286,730,1297,712,1313,708,1323,718,1339,714,1356,717,1375,713,1399,715,1391,724,1405,728,1495,722,1504,716,1530,708,1570,710,1590,709,1598,705,1609,694,1623,696,1641,697,1659,695,1678,696,1696,687,1708,690,1700,697,1736,698,1757,699,1786,694,1800,690,1800,650,1787,645,1774,646,1783,641,1789,633,1795,626,1774,625,1746,618,1722,610,1707,603,1689,606,1663,598,1649,597,1635,599,1620,582,1632,576,1631,562,1617,553,1604,543,1600,532,1585,530,1582,519,1568,510,1560,532,1554,554,1559,568,1568,574,1584,581,1602,593,1619,603,1637,611,1645,626,1633,625,1627,616,1601,605,1593,618,1567,614,1542,598,1550,591,1528,589,1513,588,1498,597,1485,592,1455,593,1422,590,1390,571,1351,547,1367,546,1382,538,1399,542,1413,531,1406,512,1405,500,1401,484,1386,470,1369,451,1355,440,1349,434,1335,428,1323,433,1309,426,1313,441,1319,453,1331,451,1338,461,1341,472,1350,485,1334,482,1325,478,1310,478,1306,487,1294,494,1277,498,1273,507,1266,518,1259,528,1251,532,1236,535,1222,534,1210,533,1202,528,1207,520,1193,506,1179,495,1167,499,1155,498,1144,502,1129,495,1116,494,1094,493,1079,498,1069,503,1046,503,1023,505,1009,515,989,520,978,510,973,497,958,500,941,505,922,508,907,503,888,495,878,493,868,498,855,497,844,503,834,511,819,508,806,514,778,534,765,542,744,535,735,540,722,544,712,541,709,552,691,554,682,550,657,546,614,540,617,530,607,527,600,520,616,513,599,508,584,511,568,510,557,506,545,510,523,517,508,517,487,506,475,505,468,494,465,484,473,477,487,471,486,458,467,446,476,437,486,418,478,412,467,418,455,425,439,426,424,432,409,434,387,443,375,447,367,452,382,462,391,470,383,475,397,479,401,493,386,499,374,504,354,506,342,513,338,523,324,523,315,527,327,534,317,538,308,548,299,558,282,562,278,572,274,587,281,593,291,600,281,605,302,618,311,624,300,636,295,649,302,658,291,669,300,677,284,684,294,692,311,696,321,699,338,693,365,691,403,679,411,675,400,663,384,660,339,668,348,659,349,644,362,641,372,651,396,645,421,665,439,661,445,668,437,674,435,686,462,682,456,676,463,667,479,669,502,680,537,689,547,681,573,685,588,689,599,683,611,689,600,695,635,695,649,692,685,681,682,691,669,695,667,707,685,719,692,728,726,728,718,714,728,704,726,690,737,684,713,663,724,662,739,668,751,678,749,690,736,696,744,706,731,714,749,721,764,712,776,723,797,723,815,718,806,726,822,738,847,738,868,739,860,745,872,751,903,756,929,758,959,761,989,764,1008,764,1020,773,1044,777,1061,774,1047,771,1070,770],[1051,783,994,779,1013,792,1028,793,1054,787],[511,805,498,804,488,802,476,800,465,802,448,806,468,808,483,808,500,809,515,807],[999,789,978,788,950,790,933,794,925,801,912,803,938,810,959,813,979,807,1002,798],[304,-11,308,-23,296,-29,293,-16,304,-11],[-88,271,-87,259,-120,259,-119,234,-131,228,-129,213,-168,213,-148,215,-142,223,-139,237,-125,248,-120,260,-114,269,-102,269,-88,271],[428,163,423,175,412,187,402,202,391,213,391,226,385,237,375,243,369,256,362,266,356,274,346,281,350,294,361,292,367,299,377,303,370,315,390,320,404,319,419,312,447,292,466,291,477,285,488,277,495,271,502,263,505,253,511,246,520,230,550,225,550,200,520,190,491,186,482,182,475,171,464,172,452,174,438,173,432,167],[340,95,332,107,332,122,321,120,324,111,314,98,300,103,290,96,280,94,268,95,260,101,248,98,242,87,234,93,230,107,225,117,219,126,222,138,226,149,239,156,238,196,250,200,250,220,290,220,329,220,369,220,372,210,371,198,375,186,384,180,372,173,368,163,363,148,363,136,359,126,348,113,343,106,340,96],[340,95,338,84,330,78,341,72,347,66,353,55,346,48,340,42,327,38,312,38,300,42,287,45,274,52,265,59,258,70,251,78,239,86,248,98,258,104,265,96,278,96,290,94,296,101,308,97,319,105,323,117,332,122,332,107,338,100],[-167,136,-176,147,-167,156,-161,165,-146,166,-134,160,-128,153,-122,146,-119,134,-115,124,-132,126,-155,126,-167,124,-159,131,-147,133,-154,139,-167,136],[-114,68,-124,73,-131,82,-127,93,-119,100,-108,97,-105,87,-111,74],[-878,134,-893,135,-901,139,-894,144,-885,140,-878,134],[489,95,478,80,437,92,429,100,431,115,441,104,456,107,466,108,480,112,489,100],[497,116,507,120,510,106,506,92,501,81,495,68,486,53,477,42,466,29,456,20,441,11,431,3,420,-9,416,-17,410,-9,410,28,419,39,428,43,437,50,450,50,478,80,485,88,489,100,489,114],[209,454,216,448,227,446,230,432,224,423,214,429,203,428,195,434,191,444,188,459,202,461,209,454],[-571,60,-559,58,-540,58,-545,49,-540,36,-545,23,-560,25,-572,28,-580,41,-573,51],[189,495,198,492,216,495,226,491,219,483,208,486,198,482,187,479,175,479,169,485,179,489,186,495],[138,465,151,467,162,469,157,458,146,456,137,460],[222,657,212,650,198,636,178,627,171,613,178,606,188,601,179,590,168,587,164,570,159,561,147,562,141,554,129,554,126,563,118,574,110,589,123,601,126,613,119,631,126,641,139,644,151,662,161,673,168,680,180,686,199,684,206,691,220,686,235,679,236,664,222,657],[321,-267,313,-273,307,-264,313,-257,320,-263],[388,334,368,323,357,327,361,338,359,354,367,363,382,369,395,367,407,371,423,372,413,364,410,344,388,334],[145,129,140,140,140,157,152,166,153,179,157,200,155,210,149,229,159,234,198,215,238,196,239,156,226,149,222,138,219,126,225,117,217,106,210,95,201,90,188,90,180,79,167,75,153,74,150,88,140,95,149,100,150,116,145,129],[19,61,6,69,7,83,4,95,0,107,9,110,14,98,16,68],[1026,122,1017,126,1010,134,1000,123,995,108,992,100,999,92,1003,83,1010,69,1021,62,1012,57,1003,66,995,73,985,84,986,99,990,110,996,119,992,128,984,146,989,162,979,176,974,184,983,197,995,202,1006,195,1010,184,1021,181,1032,183,1047,174,1056,156,1052,143,1030,142,1023,134,1026,122],[710,402,696,401,705,396,718,393,737,394,743,386,750,374,733,375,722,369,715,379,708,385,703,377,692,372,678,371,684,382,674,391,685,395,693,407,707,410],[612,357,604,365,592,374,573,380,562,379,548,374,537,379,531,393,529,409,547,410,540,416,529,419,541,423,555,413,571,413,578,422,586,428,600,422,605,412,619,411,624,401,635,394,652,384,665,380,656,373,645,363,632,359,622,353,612,357],[1250,-89,1259,-84,1273,-84,1259,-91],[95,303,91,321,84,327,76,333,81,347,82,364,95,373,102,367,110,371,106,359,108,348,103,338,111,333,114,324,106,318,101,310,95,303],[369,413,383,409,395,411,416,415,436,411,444,400,444,383,448,372,428,374,412,371,395,367,382,369,371,366,364,360,356,366,340,362,325,361,317,366,304,363,287,367,270,377,263,382,268,390,273,404,288,405,311,411,323,417,335,420,352,420,369,413],[272,407,264,402,266,416,280,420,290,413,276,410],[1218,244,1212,228,1207,220,1202,228,1207,245,1215,253],[339,-9,377,-31,392,-47,387,-59,394,-68,393,-80,395,-91,399,-101,395,-109,384,-113,375,-116,353,-114,343,-102,337,-94,322,-89,312,-86,302,-71,294,-59,293,-45,305,-36,308,-23,304,-11,319,-10,339,-9],[319,-10,304,-11,296,-6,299,6,305,16,312,22,308,35,327,38,340,42,346,31,350,19,342,5,339,-9,319,-10],[318,521,338,523,344,518,354,508,366,502,380,499,401,496,397,488,388,478,382,471,368,467,350,463,355,454,339,444,325,453,336,459,317,463,307,466,296,453,282,455,289,463,300,464,294,473,287,481,275,485,262,482,252,479,238,480,226,482,225,495,234,503,235,516,246,519,263,518,275,516,286,514,302,514,309,520],[-576,-302,-560,-309,-546,-315,-538,-320,-532,-327,-534,-338,-549,-350,-562,-349,-571,-344,-584,-339,-581,-320,-579,-310],[-948,494,-943,487,-926,485,-916,481,-896,480,-884,483,-874,479,-865,476,-849,469,-841,463,-826,453,-821,436,-829,424,-824,417,-813,422,-789,429,-777,436,-765,440,-753,448,-733,450,-715,450,-707,455,-700,467,-692,474,-678,471,-678,457,-671,451,-680,443,-691,440,-701,437,-708,429,-705,418,-719,413,-737,409,-722,411,-733,406,-742,397,-749,389,-754,380,-759,372,-762,383,-763,370,-757,356,-764,348,-774,345,-781,339,-791,335,-803,325,-813,314,-813,300,-805,285,-801,269,-804,252,-813,256,-822,267,-827,275,-829,291,-837,299,-851,296,-864,304,-875,303,-892,303,-894,292,-909,291,-916,297,-932,298,-947,295,-956,287,-966,283,-974,274,-973,262,-990,264,-995,275,-1005,287,-1017,298,-1031,290,-1045,296,-1050,306,-1061,314,-1082,318,-1090,313,-1110,313,-1133,320,-1148,325,-1160,326,-1171,325,-1179,336,-1191,341,-1204,344,-1217,362,-1225,376,-1237,390,-1244,403,-1242,420,-1241,437,-1239,455,-1241,469,-1247,482,-1231,480,-1226,471,-1228,490,-1200,490,-1170,490,-1130,490,-1100,490,-1070,490,-1040,490,-1007,490,-972,490,-952,490],[-1530,571,-1540,567,-1547,575,-1538,578,-1526,579,-1530,571],[-1717,638,-1705,637,-1687,633,-1703,632,-1716,633],[-1551,711,-1539,709,-1522,708,-1507,704,-1476,702,-1457,701,-1436,702,-1421,699,-1410,697,-1410,660,-1410,603,-1390,600,-1375,589,-1365,595,-1355,598,-1343,589,-1334,584,-1327,577,-1317,566,-1300,559,-1305,548,-1320,555,-1335,572,-1341,581,-1366,582,-1378,585,-1399,595,-1426,601,-1440,600,-1459,605,-1471,609,-1482,607,-1497,597,-1506,594,-1517,592,-1514,607,-1503,610,-1519,607,-1526,601,-1540,594,-1533,589,-1542,581,-1553,577,-1563,574,-1581,565,-1596,556,-1612,554,-1622,550,-1648,544,-1638,550,-1629,553,-1618,559,-1606,560,-1587,570,-1577,576,-1570,589,-1582,586,-1597,589,-1614,587,-1621,593,-1638,598,-1647,603,-1654,611,-1657,621,-1649,626,-1638,632,-1623,635,-1608,638,-1615,644,-1628,643,-1650,644,-1664,647,-1681,657,-1667,661,-1645,666,-1617,661,-1625,667,-1637,671,-1644,676,-1654,680,-1668,684,-1644,689,-1632,694,-1619,703,-1590,709,-1566,714,-1551,711],[665,374,652,384,642,389,624,401,619,411,605,412,600,422,586,428,578,422,571,413,559,450,585,456,602,448,620,435,632,437,649,437,661,430,665,420,680,411,691,414,704,421,712,411,731,409,718,401,706,402,693,407,685,395,674,391,684,382,678,371,665,374],[-713,118,-716,104,-717,91,-710,99,-714,110,-702,114,-689,114,-682,109,-673,105,-657,102,-643,104,-631,107,-619,107,-624,99,-608,94,-602,86,-606,78,-612,67,-607,52,-621,42,-631,38,-646,41,-644,31,-634,24,-642,15,-654,11,-663,7,-672,23,-673,35,-678,45,-675,56,-683,62,-701,70,-720,70,-724,80,-728,91,-729,105,-722,111,-713,118],[1081,216,1067,207,1059,198,1064,180,1074,167,1083,161,1089,153,1093,134,1092,117,1084,110,1072,104,1064,95,1052,86,1051,99,1043,105,1052,109,1058,116,1075,123,1076,135,1076,152,1066,166,1059,175,1051,187,1039,193,1048,199,1044,208,1032,208,1028,217,1022,225,1035,227,1053,234,1067,228,1070,218,1081,216],[531,167,522,159,512,152,496,147,487,140,474,136,459,133,450,127,435,126,433,138,429,148,428,163,434,176,452,174,464,172,475,171,482,182,491,186,520,190,528,173],[315,-293,309,-299,301,-311,289,-322,282,-328,275,-332,264,-336,252,-338,236,-338,215,-343,201,-348,192,-345,184,-340,179,-326,182,-317,176,-307,171,-299,163,-286,174,-288,185,-290,199,-285,199,-248,208,-259,216,-267,226,-260,233,-253,242,-257,257,-255,265,-246,271,-236,280,-228,294,-221,307,-222,317,-237,318,-255,309,-260,313,-273,321,-267,326,-275,322,-288],[328,-92,335,-105,331,-116,330,-128,327,-137,302,-148,295,-156,288,-164,276,-173,270,-179,253,-177,240,-173,226,-169,219,-161,219,-129,240,-129,239,-117,248,-112,258,-118,272,-116,282,-123,289,-132,296,-122,284,-118,287,-96,290,-84,303,-82,316,-88,328,-92],[312,-223,298,-221,288,-216,277,-209,262,-193,256,-185,264,-178,276,-173,285,-165,295,-156,312,-159,323,-164,328,-180,326,-194,322,-211,312,-223]];
+const TLE_FALLBACK = {"name": "ISS (ZARYA)", "l1": "1 25544U 98067A   26314.17503267  .00009346  00000+0  17575-3 0  9996", "l2": "2 25544  51.6322 297.6644 0007292   8.9462 351.1656 15.49289712594382", "src": "кэш от 10.11.2026"};
+const DEF = { lat: 56.3203, lon: 43.9560, alt: 0.073, freq: 437.550, step: 5, minEl: 15 };
+const C_LIGHT = 299792.458; // км/с
+const LS = localStorage;
+function lsGet(k, d) { try { const v = LS.getItem("sstv_" + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
+function lsSet(k, v) { try { LS.setItem("sstv_" + k, JSON.stringify(v)); } catch (e) {} }
+
+const S = {
+  lat: lsGet("lat", DEF.lat), lon: lsGet("lon", DEF.lon), alt: DEF.alt,
+  freq: lsGet("freq", DEF.freq), step: lsGet("step", DEF.step), minEl: lsGet("minEl", DEF.minEl),
+  denoise: lsGet("denoise", true), wake: lsGet("wake", true),
+};
+let tle = lsGet("tle", TLE_FALLBACK);
+let satrec = null, passes = [], curPass = null;
+
+function $(id) { return document.getElementById(id); }
+function toast(msg, ms = 3500) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", ms); }
+function pad(n) { return String(n).padStart(2, "0"); }
+function fmtHMS(s) { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return (h ? h + ":" + pad(m) : m) + ":" + pad(s % 60); }
+function fmtT(d) { return pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+
+/* ================= орбита ================= */
+function buildSat() {
+  try {
+    satrec = satellite.twoline2satrec(tle.l1, tle.l2);
+    const ep = tleEpoch(tle.l1);
+    const age = (Date.now() - ep) / 864e5;
+    $("chipTle").textContent = "TLE " + age.toFixed(1) + " сут";
+    $("chipTle").style.color = age > 7 ? "var(--bad)" : age > 3 ? "var(--acc)" : "var(--mut)";
+    $("tleAge").textContent = "возраст: " + age.toFixed(1) + " сут (" + (tle.src || "?") + ")";
+    $("tleBox").value = (tle.name || "ISS (ZARYA)") + "\n" + tle.l1 + "\n" + tle.l2;
+    return true;
+  } catch (e) { toast("Плохой TLE: " + e.message); return false; }
+}
+function tleEpoch(l1) {
+  const yy = +l1.slice(18, 20), ddd = +l1.slice(20, 32);
+  const y = yy < 57 ? 2000 + yy : 1900 + yy;
+  return Date.UTC(y, 0, 1) + (ddd - 1) * 864e5;
+}
+function observerGd() {
+  return { latitude: satellite.degreesToRadians(S.lat), longitude: satellite.degreesToRadians(S.lon), height: S.alt };
+}
+function lookAt(date) {
+  const pv = satellite.propagate(satrec, date);
+  if (!pv.position) return null;
+  const gmst = satellite.gstime(date);
+  const ecf = satellite.eciToEcf(pv.position, gmst);
+  const la = satellite.ecfToLookAngles(observerGd(), ecf);
+  const gd = satellite.eciToGeodetic(pv.position, gmst);
+  return {
+    az: satellite.radiansToDegrees(la.azimuth), el: satellite.radiansToDegrees(la.elevation),
+    range: la.rangeSat, lat: satellite.radiansToDegrees(gd.latitude),
+    lon: satellite.radiansToDegrees(gd.longitude), h: gd.height,
+  };
+}
+function rangeRate(date) {
+  const dt = 500;
+  const a = lookAt(new Date(date.getTime() - dt)), b = lookAt(new Date(date.getTime() + dt));
+  if (!a || !b) return 0;
+  return (b.range - a.range) / (2 * dt / 1000); // км/с, + удаляется
+}
+function doppler(date) { return -rangeRate(date) / C_LIGHT * S.freq * 1e6; } // Гц
+
+function refineEdge(t0, t1, rising) { // el пересекает 0 между t0 и t1
+  for (let i = 0; i < 18; i++) {
+    const tm = new Date((t0.getTime() + t1.getTime()) / 2);
+    const el = lookAt(tm).el;
+    if ((el > 0) === rising) t1 = tm; else t0 = tm;
+  }
+  return t1;
+}
+function computePasses(hours = 72) {
+  passes = [];
+  if (!satrec) return;
+  const start = new Date(Date.now() - 20 * 60e3);
+  const stepS = 30;
+  let prevEl = lookAt(start).el, inPass = prevEl > 0;
+  let aos = inPass ? start : null, maxEl = Math.max(0, prevEl), maxT = start;
+  for (let s = stepS; s < hours * 3600; s += stepS) {
+    const t = new Date(start.getTime() + s * 1000);
+    const la = lookAt(t);
+    if (!la) continue;
+    if (!inPass && la.el > 0) { inPass = true; aos = refineEdge(new Date(t.getTime() - stepS * 1000), t, true); maxEl = la.el; maxT = t; }
+    else if (inPass) {
+      if (la.el > maxEl) { maxEl = la.el; maxT = t; }
+      if (la.el <= 0) {
+        const los = refineEdge(new Date(t.getTime() - stepS * 1000), t, false);
+        passes.push({ aos, los, maxEl, maxT });
+        inPass = false; maxEl = 0;
+        if (passes.length > 40) break;
+      }
+    }
+  }
+  renderSched();
+}
+function passTrack(p, n = 60) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = new Date(p.aos.getTime() + (p.los - p.aos) * i / n);
+    const la = lookAt(t);
+    if (la && la.el >= -1) pts.push(la);
+  }
+  return pts;
+}
+
+/* ================= TLE обновление ================= */
+async function fetchTle(manual) {
+  const urls = [
+    ["wheretheiss.at", "https://api.wheretheiss.at/v1/satellites/25544/tles", async (r) => { const j = await r.json(); return { l1: j.line1, l2: j.line2, name: "ISS (ZARYA)", src: "wheretheiss.at" }; }],
+    ["celestrak", "https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=tle", async (r) => { const t = (await r.text()).trim().split(/\r?\n/); return { name: t[0].trim(), l1: t[1], l2: t[2], src: "CelesTrak" }; }],
+  ];
+  for (const [name, url, parse] of urls) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) continue;
+      const t = await parse(r);
+      if (t.l1 && t.l1.startsWith("1 ") && t.l2 && t.l2.startsWith("2 ")) {
+        tle = t; lsSet("tle", t);
+        if (buildSat()) { computePasses(); toast("TLE обновлён (" + name + ")"); }
+        return true;
+      }
+    } catch (e) { /* следующий источник */ }
+  }
+  if (manual) toast("Не удалось скачать TLE — работаю на сохранённом. Можно вставить вручную в настройках.");
+  return false;
+}
+
+/* ================= интерфейс: вкладки ================= */
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.id === "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "map") drawMap();
+});
+
+/* ================= главный цикл ================= */
+let lastLadderCh = null;
+function tick() {
+  if (!satrec) return;
+  const now = new Date();
+  const la = lookAt(now);
+  if (!la) return;
+  // текущий / следующий пролёт
+  curPass = passes.find((p) => p.los > now && p.maxEl >= S.minEl) || passes.find((p) => p.los > now) || null;
+  const inPass = curPass && now >= curPass.aos;
+  if (curPass) {
+    $("cdTitle").textContent = inPass ? "идёт пролёт · до захода" : "до пролёта (" + fmtT(curPass.aos) + ")";
+    $("cdBig").textContent = fmtHMS(((inPass ? curPass.los : curPass.aos) - now) / 1000);
+    $("cdBig").style.color = inPass ? "var(--good)" : "var(--tx)";
+    $("cdNote").textContent = "макс. высота " + curPass.maxEl.toFixed(0) + "° в " + fmtT(curPass.maxT) +
+      " · длится " + fmtHMS((curPass.los - curPass.aos) / 1000) +
+      (curPass.maxEl < 25 ? " · низкий, сигнал слабый" : curPass.maxEl > 45 ? " · отличный!" : "");
+  } else { $("cdTitle").textContent = "до пролёта"; $("cdBig").textContent = "—"; $("cdNote").textContent = "нет пролётов выше " + S.minEl + "° в ближайшие 72 ч"; }
+
+  $("azV").textContent = la.az.toFixed(0) + "°";
+  $("elV").textContent = la.el.toFixed(0) + "°";
+  $("rngV").textContent = la.el > -5 ? la.range.toFixed(0) : "—";
+  $("elV").style.color = la.el > 0 ? "var(--good)" : "var(--mut)";
+
+  // доплер и лесенка
+  const dop = doppler(now);
+  const rx = S.freq * 1e6 + dop;
+  const stepHz = S.step * 1000;
+  let dial = rx, cur = null;
+  if (stepHz > 0) { cur = Math.round(rx / stepHz) * stepHz; dial = cur; }
+  $("dialFreq").innerHTML = (dial / 1e6).toFixed(stepHz > 0 ? 3 : 4).replace(".", '<small>.</small>');
+  $("dopExact").textContent = "доплер " + (dop / 1000 >= 0 ? "+" : "") + (dop / 1000).toFixed(1) + " кГц";
+  // лесенка каналов вокруг базовой
+  if (stepHz > 0) {
+    const lad = $("ladder");
+    if (!lad._built || lad._base !== S.freq + "_" + S.step) {
+      lad.innerHTML = "";
+      for (let k = 2; k >= -2; k--) {
+        const f = Math.round(S.freq * 1e6 / stepHz) * stepHz + k * stepHz;
+        const sp = document.createElement("span");
+        sp.textContent = (f / 1e6).toFixed(3);
+        sp.dataset.f = f;
+        lad.appendChild(sp);
+      }
+      lad._built = true; lad._base = S.freq + "_" + S.step;
+    }
+    [...lad.children].forEach((sp) => sp.classList.toggle("on", +sp.dataset.f === cur));
+    // когда следующая смена
+    let nxt = "";
+    if (inPass || (curPass && curPass.aos - now < 300e3)) {
+      for (let dt = 5; dt <= 600; dt += 5) {
+        const t2 = new Date(now.getTime() + dt * 1000);
+        const rx2 = S.freq * 1e6 + doppler(t2);
+        const ch2 = Math.round(rx2 / stepHz) * stepHz;
+        if (ch2 !== cur) { nxt = "→ " + (ch2 / 1e6).toFixed(3) + " через " + fmtHMS(dt); break; }
+      }
+    }
+    $("dialNext").textContent = nxt;
+    if (lastLadderCh != null && cur !== lastLadderCh && inPass && $("beepOnSwitch").checked) beep();
+    lastLadderCh = cur;
+  } else { $("ladder").innerHTML = ""; $("dialNext").textContent = ""; }
+
+  drawPolar(la);
+  updCompass(la);
+  if (document.querySelector("#tab-map").classList.contains("on")) drawMap(la);
+}
+function beep() {
+  try {
+    const c = beep.ctx || (beep.ctx = new (window.AudioContext || window.webkitAudioContext)());
+    const o = c.createOscillator(), g = c.createGain();
+    o.frequency.value = 1400; g.gain.setValueAtTime(.25, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001, c.currentTime + .25);
+    o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + .26);
+    if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+  } catch (e) {}
+}
+
+/* ================= полярная карта ================= */
+function drawPolar(la) {
+  const cv = $("polar"), g = cv.getContext("2d");
+  const W = cv.width, cx = W / 2, cy = W / 2, R = W / 2 - 24;
+  g.clearRect(0, 0, W, W);
+  g.strokeStyle = "#2a3560"; g.fillStyle = "#8a93b8"; g.lineWidth = 1.5; g.font = "20px system-ui"; g.textAlign = "center";
+  for (const e of [0, 30, 60]) { g.beginPath(); g.arc(cx, cy, R * (90 - e) / 90, 0, 7); g.stroke(); }
+  g.beginPath(); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.stroke();
+  g.fillText("С", cx, cy - R - 7); g.fillText("Ю", cx, cy + R + 19); g.fillText("В", cx + R + 12, cy + 6); g.fillText("З", cx - R - 12, cy + 6);
+  const xy = (az, el) => { const r = R * (90 - Math.max(0, el)) / 90, a = (az - 90) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; };
+  if (curPass) {
+    const tr = curPass._track || (curPass._track = passTrack(curPass));
+    g.strokeStyle = "#4dd2ff"; g.lineWidth = 3; g.beginPath();
+    tr.forEach((p, i) => { const [x, y] = xy(p.az, p.el); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.stroke();
+    const [x0, y0] = xy(tr[0].az, tr[0].el);
+    g.fillStyle = "#4dd2ff"; g.font = "17px system-ui"; g.fillText("AOS", x0, y0 - 8);
+  }
+  if (la && la.el > 0) {
+    const [x, y] = xy(la.az, la.el);
+    g.fillStyle = "#ffb84d"; g.beginPath(); g.arc(x, y, 9, 0, 7); g.fill();
+    g.strokeStyle = "#ffb84d"; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 15, 0, 7); g.stroke();
+  }
+}
+
+/* ================= компас ================= */
+let heading = null;
+$("cmpBtn").onclick = async () => {
+  try {
+    if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) {
+      const r = await DeviceOrientationEvent.requestPermission();
+      if (r !== "granted") { toast("Нет доступа к датчикам"); return; }
+    }
+    window.addEventListener("deviceorientationabsolute", onOri, true);
+    window.addEventListener("deviceorientation", onOri, true);
+    $("cmpArrow").style.display = "inline-block";
+    $("cmpNote").textContent = "стрелка = куда повернуть антенну";
+  } catch (e) { toast("Компас недоступен: " + e.message); }
+};
+function onOri(e) {
+  if (e.webkitCompassHeading != null) heading = e.webkitCompassHeading;
+  else if (e.absolute && e.alpha != null) heading = 360 - e.alpha;
+  else if (e.alpha != null && heading == null) heading = 360 - e.alpha;
+}
+function updCompass(la) {
+  if (heading == null || !la) return;
+  const rel = ((la.az - heading) % 360 + 360) % 360;
+  $("cmpArrow").style.transform = "rotate(" + rel + "deg)";
+  $("cmpArrow").style.color = Math.min(rel, 360 - rel) < 12 ? "var(--good)" : "var(--acc)";
+}
+
+/* ================= мировая карта ================= */
+function drawMap(laNow) {
+  const cv = $("map"), g = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  const xy = (lon, lat) => [(lon + 180) / 360 * W, (90 - lat) / 180 * H];
+  g.fillStyle = "#0a0f1e"; g.fillRect(0, 0, W, H);
+  g.strokeStyle = "#1d2748"; g.lineWidth = 1;
+  for (let lon = -150; lon <= 150; lon += 30) { const [x] = xy(lon, 0); g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+  for (let lat = -60; lat <= 60; lat += 30) { const [, y] = xy(0, lat); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  g.strokeStyle = "#3a4a80"; g.lineWidth = 1;
+  for (const poly of COAST) {
+    g.beginPath();
+    for (let i = 0; i < poly.length; i += 2) {
+      const [x, y] = xy(poly[i] / 10, poly[i + 1] / 10);
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.stroke();
+  }
+  if (!satrec) return;
+  // трасса ±50 мин
+  g.lineWidth = 2;
+  let prevX = null;
+  const now = Date.now();
+  for (let m = -50; m <= 50; m += 1) {
+    const la = lookAt(new Date(now + m * 60e3));
+    if (!la) continue;
+    const [x, y] = xy(la.lon, la.lat);
+    g.strokeStyle = m < 0 ? "#555f85" : "#4dd2ff";
+    if (prevX != null && Math.abs(x - prevX) < W / 2) { g.beginPath(); g.moveTo(prevX, prevY); g.lineTo(x, y); g.stroke(); }
+    var prevY = y; prevX = x;
+  }
+  const la0 = laNow || lookAt(new Date());
+  // зона радиовидимости
+  const [sx, sy] = xy(la0.lon, la0.lat);
+  const rKm = Math.acos(6371 / (6371 + la0.h)) * 6371;
+  g.strokeStyle = "rgba(255,184,77,.8)"; g.lineWidth = 1.5; g.beginPath();
+  let st = null;
+  for (let a = 0; a <= 360; a += 4) {
+    const d = rKm / 6371;
+    const lat1 = la0.lat * Math.PI / 180, lon1 = la0.lon * Math.PI / 180, br = a * Math.PI / 180;
+    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(br));
+    const lon2 = lon1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(lat1), Math.cos(d) - Math.sin(lat1) * Math.sin(lat2));
+    const [x, y] = xy(((lon2 * 180 / Math.PI + 540) % 360) - 180, lat2 * 180 / Math.PI);
+    if (st && Math.abs(x - st[0]) < W / 2) { g.lineTo(x, y); } else g.moveTo(x, y);
+    st = [x, y];
+  }
+  g.stroke();
+  g.fillStyle = "#ffb84d"; g.beginPath(); g.arc(sx, sy, 6, 0, 7); g.fill();
+  const [ox, oy] = xy(S.lon, S.lat);
+  g.fillStyle = "#5be37b"; g.beginPath(); g.arc(ox, oy, 5, 0, 7); g.fill();
+  $("mapNote").textContent = "МКС: " + la0.lat.toFixed(1) + "°, " + la0.lon.toFixed(1) + "° · высота " + la0.h.toFixed(0) + " км · зелёная точка — ты";
+}
+
+/* ================= расписание ================= */
+function renderSched() {
+  $("schedMinEl").textContent = "выше " + S.minEl + "°";
+  const box = $("passList");
+  const good = passes.filter((p) => p.maxEl >= S.minEl);
+  if (!good.length) { box.textContent = "нет пролётов выше " + S.minEl + "°"; return; }
+  box.innerHTML = "";
+  const now = new Date();
+  for (const p of good.slice(0, 20)) {
+    const d = document.createElement("div");
+    d.className = "p" + (p.aos <= now && now <= p.los ? " now" : "");
+    const day = p.aos.toDateString() === now.toDateString() ? "сегодня" :
+      p.aos.getDate() === now.getDate() + 1 ? "завтра" : pad(p.aos.getDate()) + "." + pad(p.aos.getMonth() + 1);
+    d.innerHTML = "<span>" + day + " " + fmtT(p.aos) + "–" + fmtT(p.los) + "</span>" +
+      "<span>" + fmtHMS((p.los - p.aos) / 1000) + "</span>" +
+      "<span class='el " + (p.maxEl > 40 ? "accent" : "") + "'>" + (p.maxEl > 40 ? "⭑ " : "") + p.maxEl.toFixed(0) + "°</span>";
+    box.appendChild(d);
+  }
+}
+
+/* ================= приём: микрофон, воркер ================= */
+let audio = null; // {ctx, stream, node, analyser, worker, t0}
+let wavBlob = null, wakeLock = null;
+const galImages = [];
+
+/* сохранение файлов: на claude.ai — через capability downloads, иначе <a download> */
+let dlNS = null, dlTried = false;
+async function dlGet() {
+  if (!dlTried) {
+    dlTried = true;
+    try { if (window.claude && claude.use) dlNS = await claude.use("downloads"); } catch (e) {}
+  }
+  return dlNS;
+}
+function dataUrlToBlob(u) {
+  const [h, b64] = u.split(",");
+  const mime = (h.match(/data:([^;]+)/) || [])[1] || "application/octet-stream";
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+async function saveFile(filename, src) {
+  const ns = await dlGet();
+  const blob = src instanceof Blob ? src : dataUrlToBlob(src);
+  if (ns) {
+    try { await ns.save({ filename, data: blob }); toast("Сохранено: " + filename); }
+    catch (e) { if (!e || e.code !== "declined") toast("Не сохранилось: " + ((e && (e.message || e.code)) || e)); }
+    return;
+  }
+  const a = document.createElement("a");
+  a.download = filename;
+  a.href = URL.createObjectURL(blob);
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+}
+
+function workerSrc() {
+  const base = document.getElementById("robot36src").textContent;
+  return base + `
+self.SSTV = SSTV;
+let ld = null;
+self.onmessage = (e) => {
+  const m = e.data;
+  if (m.type === "init") {
+    SSTV.SSTVConfig.denoise = m.denoise;
+    ld = new SSTV.LiveDecoder(m.rate,
+      (rec) => { self.postMessage({ type: "image", rgb: rec.rgb.buffer, lines: rec.lines, q: rec.q, start: rec.start, num: rec.num, w0: rec.w0 }, [rec.rgb.buffer]); },
+      (rgb, prog) => { const c = rgb.slice(); self.postMessage({ type: "partial", rgb: c.buffer, prog }, [c.buffer]); });
+  } else if (m.type === "audio") {
+    ld.feed(new Float32Array(m.buf), m.wall);
+    const t0 = Date.now();
+    ld.poll();
+    const dt = Date.now() - t0;
+    if (m.wantStat) self.postMessage({ type: "stat", strength: ld.strength(), progress: ld.progress, ms: dt, n: ld.n });
+  } else if (m.type === "file") {
+    SSTV.SSTVConfig.denoise = m.denoise;
+    const x = new Float32Array(m.buf);
+    const fd = new SSTV.LiveDecoder(m.rate,
+      (rec) => { self.postMessage({ type: "image", rgb: rec.rgb.buffer, lines: rec.lines, q: rec.q, start: rec.start, num: rec.num, w0: null, fromFile: true }, [rec.rgb.buffer]); });
+    const chunk = Math.floor(m.rate / 2);
+    for (let i = 0; i < x.length; i += chunk) { fd.feed(x.subarray(i, Math.min(x.length, i + chunk))); fd.poll(); }
+    fd.finish();
+    self.postMessage({ type: "filedone", count: fd.images.length });
+  } else if (m.type === "denoise") { SSTV.SSTVConfig.denoise = m.v; }
+  else if (m.type === "finish") {
+    ld.finish();
+    const i16 = new Int16Array(ld.n);
+    for (let i = 0; i < ld.n; i++) { let v = Math.max(-1, Math.min(1, ld.buf[i])); i16[i] = v * 32767; }
+    self.postMessage({ type: "wav", buf: i16.buffer, fs: SSTV.FS }, [i16.buffer]);
+  }
+};`;
+}
+
+$("micBtn").onclick = () => audio ? stopMic() : startMic();
+
+async function startMic() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+    });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048; analyser.smoothingTimeConstant = 0.5;
+    src.connect(analyser);
+    const node = ctx.createScriptProcessor(4096, 1, 1);
+    const worker = new Worker(URL.createObjectURL(new Blob([workerSrc()], { type: "text/javascript" })));
+    worker.postMessage({ type: "init", rate: ctx.sampleRate, denoise: S.denoise });
+    worker.onmessage = onWorkerMsg;
+    let statCnt = 0;
+    node.onaudioprocess = (e) => {
+      const ch = e.inputBuffer.getChannelData(0);
+      const buf = new Float32Array(ch).buffer;
+      worker.postMessage({ type: "audio", buf, wall: Date.now() / 1000, wantStat: (++statCnt % 3) === 0 }, [buf]);
+    };
+    src.connect(node); node.connect(ctx.destination);
+    audio = { ctx, stream, node, analyser, worker, t0: Date.now() };
+    $("micBtn").textContent = "■ стоп";
+    $("micBtn").classList.remove("primary"); $("micBtn").classList.add("rec");
+    $("recTime").style.display = "inline-block";
+    wavBlob = null; $("wavBtn").disabled = true;
+    drawWf();
+    recTimer();
+    if (S.wake && "wakeLock" in navigator) { try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {} }
+    toast("Слушаю. Поднеси телефон к динамику рации.");
+  } catch (e) {
+    const art = /claude\.(ai|site)/.test(location.hostname);
+    toast(art ? "В версии на claude.ai микрофон закрыт песочницей — открой копию страницы на своём хостинге (web/index.html), или декодируй из записи ниже." :
+      location.protocol !== "https:" && location.hostname !== "localhost" ? "Для микрофона страницу надо открывать по HTTPS" :
+      "Микрофон не дали: " + e.message, 6000);
+  }
+}
+function stopMic() {
+  if (!audio) return;
+  audio.worker.postMessage({ type: "finish" });
+  audio.node.disconnect(); audio.stream.getTracks().forEach((t) => t.stop());
+  audio.ctx.close();
+  $("micBtn").textContent = "▶ слушать микрофон";
+  $("micBtn").classList.add("primary"); $("micBtn").classList.remove("rec");
+  $("sigTxt").textContent = "сигнал: —"; $("sigBar").style.width = "0%";
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  const w = audio.worker;
+  audio = { worker: w, closing: true };
+}
+function recTimer() {
+  if (!audio || audio.closing) return;
+  const s = Math.floor((Date.now() - audio.t0) / 1000);
+  $("recTime").textContent = Math.floor(s / 60) + ":" + pad(s % 60);
+  setTimeout(recTimer, 1000);
+}
+function onWorkerMsg(e) {
+  const m = e.data;
+  if (m.type === "stat") {
+    const v = m.strength;
+    $("sigBar").style.width = v.toFixed(0) + "%";
+    $("sigBar").style.filter = v > 55 ? "none" : "saturate(.4)";
+    $("sigTxt").textContent = "сигнал SSTV: " + v.toFixed(0) + "%";
+    $("decTxt").textContent = m.progress ? "приём: строка " + m.progress + "/240" : "";
+    $("cpuTxt").textContent = m.ms > 900 ? "⚠ телефон не успевает" : "";
+  } else if (m.type === "partial") {
+    const cv = $("partial");
+    cv.style.display = "block";
+    cv.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(m.rgb), 320, 240), 0, 0);
+  } else if (m.type === "image") {
+    $("partial").style.display = "none";
+    addImage(new Uint8ClampedArray(m.rgb), m);
+    toast("📷 Картинка #" + m.num + " принята! (" + m.lines + " строк, q=" + m.q.toFixed(2) + ")");
+    beep();
+  } else if (m.type === "wav") {
+    makeWav(new Int16Array(m.buf), m.fs);
+    if (audio && audio.closing) { audio.worker.terminate(); audio = null; }
+  }
+}
+function addImage(rgba, meta) {
+  const box = $("gal");
+  $("galNote").style.display = "none";
+  const wrap = document.createElement("div");
+  wrap.className = "im";
+  const big = document.createElement("canvas");
+  big.width = 640; big.height = 480;
+  const tmp = document.createElement("canvas");
+  tmp.width = 320; tmp.height = 240;
+  tmp.getContext("2d").putImageData(new ImageData(rgba, 320, 240), 0, 0);
+  const g = big.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  g.drawImage(tmp, 0, 0, 640, 480);
+  const t = meta.w0 ? new Date(meta.w0 * 1000) : new Date();
+  const name = "iss_sstv_" + t.toISOString().replace(/[:T]/g, "-").slice(0, 19) + ".png";
+  const im = document.createElement("img");
+  im.src = big.toDataURL("image/png");
+  im.style.cssText = "width:100%;border-radius:6px;image-rendering:pixelated";
+  const cap = document.createElement("div");
+  cap.className = "cap";
+  cap.innerHTML = "<span>#" + meta.num + (meta.fromFile ? "·файл" : "") + " · " + fmtT(t) + " · " + meta.lines + " стр · q " + meta.q.toFixed(2) + "</span>";
+  const dl = document.createElement("a");
+  dl.textContent = "⬇";
+  dl.href = "#";
+  dl.onclick = (ev) => { ev.preventDefault(); saveFile(name, im.src); };
+  cap.appendChild(dl);
+  wrap.appendChild(im); wrap.appendChild(cap);
+  box.prepend(wrap);
+  galImages.push(meta);
+  document.querySelector('[data-tab="gal"] .ic').textContent = "🖼✓";
+}
+/* декодирование из файла записи (wav/m4a/что угодно, что умеет браузер) */
+$("wavIn").onchange = async () => {
+  const f = $("wavIn").files[0];
+  if (!f) return;
+  $("wavInNote").textContent = "декодирую " + f.name + "…";
+  try {
+    const ab = await f.arrayBuffer();
+    const dctx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = await dctx.decodeAudioData(ab);
+    const x = buf.getChannelData(0);
+    const w = new Worker(URL.createObjectURL(new Blob([workerSrc()], { type: "text/javascript" })));
+    w.onmessage = (e) => {
+      if (e.data.type === "image") onWorkerMsg(e);
+      else if (e.data.type === "filedone") {
+        $("wavInNote").textContent = e.data.count
+          ? "готово: картинок " + e.data.count + " — смотри вкладку Фото"
+          : "в записи не нашлось Robot 36 (слишком шумно или не тот режим)";
+        w.terminate(); dctx.close();
+      }
+    };
+    const cp = new Float32Array(x);
+    w.postMessage({ type: "file", buf: cp.buffer, rate: buf.sampleRate, denoise: S.denoise }, [cp.buffer]);
+  } catch (e) { $("wavInNote").textContent = "не смог прочитать файл: " + e.message; }
+};
+function makeWav(i16, fs) {
+  const h = new ArrayBuffer(44);
+  const v = new DataView(h);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + i16.length * 2, true); w(8, "WAVEfmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, fs, true); v.setUint32(28, fs * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, "data"); v.setUint32(40, i16.length * 2, true);
+  wavBlob = new Blob([h, i16.buffer], { type: "audio/wav" });
+  $("wavBtn").disabled = false;
+  $("wavBtn").onclick = () => saveFile("iss_sstv_" + new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19) + ".wav", wavBlob);
+  toast("Запись готова — кнопка WAV на вкладке Фото (" + (i16.length / fs / 60).toFixed(1) + " мин)");
+}
+function drawWf() {
+  if (!audio || audio.closing) return;
+  const an = audio.analyser;
+  const cv = $("wf"), g = cv.getContext("2d");
+  const bins = new Uint8Array(an.frequencyBinCount);
+  an.getByteFrequencyData(bins);
+  // сдвиг влево на 2px
+  g.drawImage(cv, -2, 0);
+  const binHz = audio.ctx.sampleRate / an.fftSize;
+  const maxHz = 3000;
+  const H = cv.height;
+  const img = g.createImageData(2, H);
+  for (let y = 0; y < H; y++) {
+    const hz = maxHz * (1 - y / H);
+    const b = Math.min(bins.length - 1, Math.round(hz / binHz));
+    const vv = bins[b] / 255;
+    const r = Math.min(255, vv * 650), gg = Math.min(255, Math.max(0, vv * 650 - 220)), bb = Math.min(255, Math.max(0, vv * 650 - 440));
+    for (const dx of [0, 1]) {
+      const o = (y * 2 + dx) * 4;
+      img.data[o] = r * .25 + bb * .7; img.data[o + 1] = gg; img.data[o + 2] = r; img.data[o + 3] = 255;
+    }
+  }
+  g.putImageData(img, cv.width - 2, 0);
+  // маркеры 1200/1500-2300
+  g.fillStyle = "rgba(255,184,77,.9)";
+  g.fillRect(cv.width - 2, H * (1 - 1200 / 3000), 2, 1);
+  requestAnimationFrame(() => setTimeout(drawWf, 60));
+}
+
+/* ================= настройки ================= */
+function bindSettings() {
+  $("setFreq").value = S.freq;
+  $("setStep").value = String(S.step);
+  $("setLat").value = S.lat; $("setLon").value = S.lon;
+  $("setMinEl").value = S.minEl;
+  $("setDenoise").checked = S.denoise;
+  $("setWake").checked = S.wake;
+  $("chipFreq").textContent = S.freq.toFixed(3);
+  $("setFreq").onchange = () => { S.freq = +$("setFreq").value || DEF.freq; lsSet("freq", S.freq); $("chipFreq").textContent = S.freq.toFixed(3); $("ladder")._built = false; };
+  document.querySelectorAll("[data-f]").forEach((b) => b.onclick = () => { $("setFreq").value = b.dataset.f; $("setFreq").onchange(); });
+  $("setStep").onchange = () => { S.step = +$("setStep").value; lsSet("step", S.step); $("ladder")._built = false; };
+  $("setLat").onchange = $("setLon").onchange = () => {
+    S.lat = +$("setLat").value; S.lon = +$("setLon").value;
+    lsSet("lat", S.lat); lsSet("lon", S.lon);
+    computePasses(); toast("Пересчитал пролёты для нового места");
+  };
+  $("setMinEl").onchange = () => { S.minEl = +$("setMinEl").value; lsSet("minEl", S.minEl); renderSched(); };
+  $("setDenoise").onchange = () => { S.denoise = $("setDenoise").checked; lsSet("denoise", S.denoise); if (audio && audio.worker) audio.worker.postMessage({ type: "denoise", v: S.denoise }); };
+  $("setWake").onchange = () => { S.wake = $("setWake").checked; lsSet("wake", S.wake); };
+  $("gpsBtn").onclick = () => {
+    if (!navigator.geolocation) { toast("GPS недоступен"); return; }
+    $("locNote").textContent = "спрашиваю GPS…";
+    navigator.geolocation.getCurrentPosition((pos) => {
+      S.lat = +pos.coords.latitude.toFixed(4); S.lon = +pos.coords.longitude.toFixed(4);
+      S.alt = (pos.coords.altitude || 73) / 1000;
+      $("setLat").value = S.lat; $("setLon").value = S.lon;
+      lsSet("lat", S.lat); lsSet("lon", S.lon);
+      $("locNote").textContent = "взято с GPS (±" + Math.round(pos.coords.accuracy) + " м)";
+      computePasses();
+    }, (err) => { $("locNote").textContent = "GPS не дал координаты: " + err.message; }, { enableHighAccuracy: true, timeout: 15000 });
+  };
+  $("tleBtn").onclick = () => fetchTle(true);
+  $("tleApply").onclick = () => {
+    const ls_ = $("tleBox").value.trim().split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    const l1 = ls_.find((s) => s.startsWith("1 ")), l2 = ls_.find((s) => s.startsWith("2 "));
+    if (!l1 || !l2) { toast("Нужны две строки TLE (начинаются с «1 » и «2 »)"); return; }
+    tle = { name: ls_.length > 2 ? ls_[0] : "ISS", l1, l2, src: "вручную" };
+    lsSet("tle", tle);
+    if (buildSat()) { computePasses(); toast("TLE применён"); }
+  };
+}
+
+/* ================= старт ================= */
+bindSettings();
+if (buildSat()) computePasses();
+fetchTle(false);
+setInterval(tick, 1000);
+tick();
+document.addEventListener("visibilitychange", async () => {
+  if (!document.hidden && audio && !audio.closing && S.wake && "wakeLock" in navigator && !wakeLock) {
+    try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+  }
+});
+</script>
+</body>
+</html>
