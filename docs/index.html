@@ -6,9 +6,9 @@
 <title>МКС SSTV — пульт пролёта</title>
 <style>
 :root{
-  --bg:#0b1020; --panel:#141b31; --panel2:#1b2342; --line:#2a3560;
-  --tx:#e8ecff; --mut:#8a93b8; --acc:#ffb84d; --acc2:#4dd2ff; --good:#5be37b; --bad:#ff6b7a;
-  --mono:"SF Mono",Consolas,Menlo,monospace;
+  --bg:#000000; --panel:#060606; --panel2:#0d0d0d; --line:#1f1f1f;
+  --tx:#f2f2f2; --mut:#8c8c8c; --acc:#ffffff; --acc2:#f2f2f2; --good:#30d158; --bad:#ff3b30; --live:#ff6a13;
+  --mono:Consolas,"SF Mono",Menlo,monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
@@ -17,50 +17,50 @@ body{background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,Segoe UI,Robo
 header{display:flex;align-items:baseline;gap:10px;padding:4px 2px 10px}
 header h1{font-size:17px;letter-spacing:.4px}
 header .sub{color:var(--mut);font-size:12px}
-.chip{font:12px var(--mono);background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:2px 10px;color:var(--acc2)}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.chip{font:12px var(--mono);background:var(--panel2);border:1px solid var(--line);border-radius:2px;padding:2px 10px;color:var(--mut)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:12px;margin-bottom:10px}
 .card h2{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:8px}
 .big{font:700 44px/1 var(--mono);letter-spacing:1px}
-.freq{font:700 54px/1 var(--mono);color:var(--acc);text-align:center;padding:6px 0 2px}
+.freq{font:700 54px/1 var(--mono);color:#fff;text-align:center;padding:6px 0 2px}
 .freq small{font-size:22px;color:var(--mut)}
 .row{display:flex;gap:10px;align-items:center;justify-content:space-between}
 .col3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center}
 .kv .v{font:600 22px var(--mono)}
 .kv .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:1px}
 .mut{color:var(--mut)} .accent{color:var(--acc)} .good{color:var(--good)} .bad{color:var(--bad)} .cyan{color:var(--acc2)}
-button{background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:10px;padding:10px 14px;font-size:15px;cursor:pointer}
-button.primary{background:#2a3c7a;border-color:#3d55ad}
-button.rec{background:#7a2a35;border-color:#ad3d4d}
+button{background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:2px;padding:10px 14px;font-size:15px;cursor:pointer}
+button.primary{background:#f2f2f2;border-color:#f2f2f2;color:#000;font-weight:600}
+button.rec{background:#1a0603;border-color:#ff6a13;color:#ff6a13}
 button:disabled{opacity:.45}
-button.small{padding:5px 10px;font-size:13px;border-radius:8px}
-input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:8px;padding:8px;font-size:14px;width:100%}
+button.small{padding:5px 10px;font-size:13px;border-radius:2px}
+input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:2px;padding:8px;font-size:14px;width:100%}
 textarea{font:12px var(--mono)}
-canvas{display:block;width:100%;border-radius:10px;background:#0a0f1e}
-nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:rgba(13,18,36,.97);border-top:1px solid var(--line);backdrop-filter:blur(8px);z-index:50}
+canvas{display:block;width:100%;border-radius:2px;background:#000;border:1px solid #1f1f1f}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:rgba(0,0,0,.95);border-top:1px solid var(--line);backdrop-filter:blur(8px);z-index:50}
 nav button{flex:1;background:none;border:none;border-radius:0;color:var(--mut);font-size:11.5px;padding:9px 0 max(9px, env(safe-area-inset-bottom))}
 nav button .ic{display:block;font-size:19px;margin-bottom:1px}
-nav button.on{color:var(--acc)}
+nav button.on{color:#fff}
 .tab{display:none}.tab.on{display:block}
-.bar{height:10px;background:var(--panel2);border-radius:6px;overflow:hidden;border:1px solid var(--line)}
-.bar i{display:block;height:100%;background:linear-gradient(90deg,#2a7a4f,var(--good));width:0%;transition:width .4s}
+.bar{height:10px;background:var(--panel2);border-radius:0;overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;background:var(--good);width:0%;transition:width .4s}
 .gal{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.gal .im{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:6px}
+.gal .im{background:var(--panel2);border:1px solid var(--line);border-radius:2px;padding:6px}
 .gal canvas{image-rendering:pixelated}
 .gal .cap{font:11px var(--mono);color:var(--mut);margin-top:4px;display:flex;justify-content:space-between;align-items:center}
 .passlist{font:13px var(--mono)}
 .passlist .p{display:flex;gap:8px;justify-content:space-between;padding:8px 6px;border-bottom:1px solid var(--line)}
-.passlist .p.now{background:#20305e;border-radius:8px}
+.passlist .p.now{background:#111;border-left:2px solid var(--live)}
 .passlist .el{min-width:52px;text-align:right}
 .note{font-size:12.5px;color:var(--mut);margin-top:6px}
 .setrow{margin-bottom:12px}
 .setrow label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px;text-transform:uppercase;letter-spacing:.8px}
 .presets{display:flex;gap:8px;margin-top:6px}
 .ladder{display:flex;gap:6px;justify-content:center;margin:4px 0 2px;font:13px var(--mono)}
-.ladder span{padding:3px 8px;border-radius:8px;border:1px solid var(--line);color:var(--mut)}
-.ladder span.on{background:#5a4210;border-color:var(--acc);color:var(--acc);font-weight:700}
+.ladder span{padding:3px 8px;border-radius:2px;border:1px solid var(--line);color:var(--mut)}
+.ladder span.on{background:#f2f2f2;border-color:#f2f2f2;color:#000;font-weight:700}
 .toggle{display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:8px}
 .toggle input{width:auto}
-#toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#20305e;border:1px solid #3d55ad;border-radius:10px;padding:8px 16px;font-size:13.5px;z-index:99;display:none;max-width:90%}
+#toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#0d0d0d;border:1px solid #2c2c2c;border-radius:2px;padding:8px 16px;font-size:13.5px;z-index:99;display:none;max-width:90%}
 .statline{font:12px var(--mono);color:var(--mut);display:flex;gap:12px;flex-wrap:wrap}
 a{color:var(--acc2)}
 .arrow{font-size:34px;display:inline-block;transition:transform .2s}
@@ -69,7 +69,7 @@ a{color:var(--acc2)}
 <body>
 <div id="app">
 <header>
-  <h1>МКС&nbsp;·&nbsp;SSTV</h1>
+  <h1><span style="color:var(--live)">◉</span> SSTV&nbsp;·&nbsp;МКС <span class="sub">пульт пролёта</span></h1>
   <span class="chip" id="chipFreq">437.550</span>
   <span class="sub" id="chipTle">TLE…</span>
 </header>
@@ -1142,7 +1142,7 @@ function tick() {
   if (curPass) {
     $("cdTitle").textContent = inPass ? "идёт пролёт · до захода" : "до пролёта (" + fmtT(curPass.aos) + ")";
     $("cdBig").textContent = fmtHMS(((inPass ? curPass.los : curPass.aos) - now) / 1000);
-    $("cdBig").style.color = inPass ? "var(--good)" : "var(--tx)";
+    $("cdBig").style.color = inPass ? "var(--live)" : "var(--tx)";
     $("cdNote").textContent = "макс. высота " + curPass.maxEl.toFixed(0) + "° в " + fmtT(curPass.maxT) +
       " · длится " + fmtHMS((curPass.los - curPass.aos) / 1000) +
       (curPass.maxEl < 25 ? " · низкий, сигнал слабый" : curPass.maxEl > 45 ? " · отличный!" : "");
@@ -1151,7 +1151,7 @@ function tick() {
   $("azV").textContent = la.az.toFixed(0) + "°";
   $("elV").textContent = la.el.toFixed(0) + "°";
   $("rngV").textContent = la.el > -5 ? la.range.toFixed(0) : "—";
-  $("elV").style.color = la.el > 0 ? "var(--good)" : "var(--mut)";
+  $("elV").style.color = la.el > 0 ? "var(--live)" : "var(--mut)";
 
   // доплер и лесенка
   const dop = doppler(now);
@@ -1211,23 +1211,23 @@ function drawPolar(la) {
   const cv = $("polar"), g = cv.getContext("2d");
   const W = cv.width, cx = W / 2, cy = W / 2, R = W / 2 - 24;
   g.clearRect(0, 0, W, W);
-  g.strokeStyle = "#2a3560"; g.fillStyle = "#8a93b8"; g.lineWidth = 1.5; g.font = "20px system-ui"; g.textAlign = "center";
+  g.strokeStyle = "#1f1f1f"; g.fillStyle = "#8c8c8c"; g.lineWidth = 1.5; g.font = "20px system-ui"; g.textAlign = "center";
   for (const e of [0, 30, 60]) { g.beginPath(); g.arc(cx, cy, R * (90 - e) / 90, 0, 7); g.stroke(); }
   g.beginPath(); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.stroke();
   g.fillText("С", cx, cy - R - 7); g.fillText("Ю", cx, cy + R + 19); g.fillText("В", cx + R + 12, cy + 6); g.fillText("З", cx - R - 12, cy + 6);
   const xy = (az, el) => { const r = R * (90 - Math.max(0, el)) / 90, a = (az - 90) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; };
   if (curPass) {
     const tr = curPass._track || (curPass._track = passTrack(curPass));
-    g.strokeStyle = "#4dd2ff"; g.lineWidth = 3; g.beginPath();
+    g.strokeStyle = "#f2f2f2"; g.lineWidth = 2.5; g.beginPath();
     tr.forEach((p, i) => { const [x, y] = xy(p.az, p.el); i ? g.lineTo(x, y) : g.moveTo(x, y); });
     g.stroke();
     const [x0, y0] = xy(tr[0].az, tr[0].el);
-    g.fillStyle = "#4dd2ff"; g.font = "17px system-ui"; g.fillText("AOS", x0, y0 - 8);
+    g.fillStyle = "#8c8c8c"; g.font = "17px system-ui"; g.fillText("AOS", x0, y0 - 8);
   }
   if (la && la.el > 0) {
     const [x, y] = xy(la.az, la.el);
-    g.fillStyle = "#ffb84d"; g.beginPath(); g.arc(x, y, 9, 0, 7); g.fill();
-    g.strokeStyle = "#ffb84d"; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 15, 0, 7); g.stroke();
+    g.fillStyle = "#ff6a13"; g.beginPath(); g.arc(x, y, 9, 0, 7); g.fill();
+    g.strokeStyle = "#ff6a13"; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 15, 0, 7); g.stroke();
   }
 }
 
@@ -1254,7 +1254,7 @@ function updCompass(la) {
   if (heading == null || !la) return;
   const rel = ((la.az - heading) % 360 + 360) % 360;
   $("cmpArrow").style.transform = "rotate(" + rel + "deg)";
-  $("cmpArrow").style.color = Math.min(rel, 360 - rel) < 12 ? "var(--good)" : "var(--acc)";
+  $("cmpArrow").style.color = Math.min(rel, 360 - rel) < 12 ? "var(--good)" : "var(--live)";
 }
 
 /* ================= мировая карта ================= */
@@ -1262,11 +1262,11 @@ function drawMap(laNow) {
   const cv = $("map"), g = cv.getContext("2d");
   const W = cv.width, H = cv.height;
   const xy = (lon, lat) => [(lon + 180) / 360 * W, (90 - lat) / 180 * H];
-  g.fillStyle = "#0a0f1e"; g.fillRect(0, 0, W, H);
-  g.strokeStyle = "#1d2748"; g.lineWidth = 1;
+  g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
+  g.strokeStyle = "#111111"; g.lineWidth = 1;
   for (let lon = -150; lon <= 150; lon += 30) { const [x] = xy(lon, 0); g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
   for (let lat = -60; lat <= 60; lat += 30) { const [, y] = xy(0, lat); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
-  g.strokeStyle = "#3a4a80"; g.lineWidth = 1;
+  g.strokeStyle = "#5a5a5a"; g.lineWidth = 1;
   for (const poly of COAST) {
     g.beginPath();
     for (let i = 0; i < poly.length; i += 2) {
@@ -1284,7 +1284,7 @@ function drawMap(laNow) {
     const la = lookAt(new Date(now + m * 60e3));
     if (!la) continue;
     const [x, y] = xy(la.lon, la.lat);
-    g.strokeStyle = m < 0 ? "#555f85" : "#4dd2ff";
+    g.strokeStyle = m < 0 ? "#4d4d4d" : "#f2f2f2";
     if (prevX != null && Math.abs(x - prevX) < W / 2) { g.beginPath(); g.moveTo(prevX, prevY); g.lineTo(x, y); g.stroke(); }
     var prevY = y; prevX = x;
   }
@@ -1292,7 +1292,7 @@ function drawMap(laNow) {
   // зона радиовидимости
   const [sx, sy] = xy(la0.lon, la0.lat);
   const rKm = Math.acos(6371 / (6371 + la0.h)) * 6371;
-  g.strokeStyle = "rgba(255,184,77,.8)"; g.lineWidth = 1.5; g.beginPath();
+  g.strokeStyle = "rgba(255,106,19,.85)"; g.lineWidth = 1.5; g.beginPath();
   let st = null;
   for (let a = 0; a <= 360; a += 4) {
     const d = rKm / 6371;
@@ -1304,9 +1304,9 @@ function drawMap(laNow) {
     st = [x, y];
   }
   g.stroke();
-  g.fillStyle = "#ffb84d"; g.beginPath(); g.arc(sx, sy, 6, 0, 7); g.fill();
+  g.fillStyle = "#ff6a13"; g.beginPath(); g.arc(sx, sy, 6, 0, 7); g.fill();
   const [ox, oy] = xy(S.lon, S.lat);
-  g.fillStyle = "#5be37b"; g.beginPath(); g.arc(ox, oy, 5, 0, 7); g.fill();
+  g.fillStyle = "#30d158"; g.beginPath(); g.arc(ox, oy, 5, 0, 7); g.fill();
   $("mapNote").textContent = "МКС: " + la0.lat.toFixed(1) + "°, " + la0.lon.toFixed(1) + "° · высота " + la0.h.toFixed(0) + " км · зелёная точка — ты";
 }
 
@@ -1577,7 +1577,7 @@ function drawWf() {
   }
   g.putImageData(img, cv.width - 2, 0);
   // маркеры 1200/1500-2300
-  g.fillStyle = "rgba(255,184,77,.9)";
+  g.fillStyle = "rgba(255,106,19,.9)";
   g.fillRect(cv.width - 2, H * (1 - 1200 / 3000), 2, 1);
   requestAnimationFrame(() => setTimeout(drawWf, 60));
 }
