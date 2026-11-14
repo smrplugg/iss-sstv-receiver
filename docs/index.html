@@ -69,18 +69,13 @@ a{color:var(--acc2)}
 <body>
 <div id="app">
 <header>
-  <h1><span style="color:var(--live)">◉</span> SSTV&nbsp;·&nbsp;<span id="hdrSat">МКС</span> <span class="sub">пульт пролёта</span></h1>
+  <h1><span style="color:var(--live)">◉</span> SSTV&nbsp;·&nbsp;МКС <span class="sub">пульт пролёта</span></h1>
   <span class="chip" id="chipFreq">437.550</span>
   <span class="sub" id="chipTle">TLE…</span>
 </header>
 
 <!-- ПРОЛЁТ -->
 <div class="tab on" id="tab-pass">
-  <div class="card" style="padding:10px 12px">
-    <h2>спутник</h2>
-    <select id="satSel"></select>
-    <div class="note" id="satNote"></div>
-  </div>
   <div class="card" id="cardCountdown">
     <h2 id="cdTitle">до пролёта</h2>
     <div class="big" id="cdBig">—:—:—</div>
@@ -94,6 +89,9 @@ a{color:var(--acc2)}
     <div class="row" style="justify-content:center;gap:16px;margin-top:4px">
       <span class="mut" style="font:13px var(--mono)" id="dopExact">доплер +0.0 кГц</span>
       <span class="cyan" style="font:13px var(--mono)" id="dialNext"></span>
+    </div>
+    <div class="toggle" style="justify-content:center;margin-top:8px">
+      <input type="checkbox" id="beepOnSwitch" checked><label for="beepOnSwitch" style="margin:0;font-size:13px" class="mut">пикать при смене канала</label>
     </div>
   </div>
 
@@ -134,7 +132,7 @@ a{color:var(--acc2)}
 <!-- КАРТА -->
 <div class="tab" id="tab-map">
   <div class="card">
-    <h2 id="mapTitle">трасса МКС</h2>
+    <h2>трасса МКС</h2>
     <canvas id="map" width="1024" height="512"></canvas>
     <div class="note" id="mapNote"></div>
   </div>
@@ -143,14 +141,9 @@ a{color:var(--acc2)}
 <!-- РАСПИСАНИЕ -->
 <div class="tab" id="tab-sched">
   <div class="card">
-    <h2><span id="schedSat">МКС</span> · пролёты · 72 часа · <span id="schedMinEl"></span></h2>
+    <h2>пролёты · 72 часа · <span id="schedMinEl"></span></h2>
     <div class="passlist" id="passList">считаю…</div>
     <div class="note">Времена местные. ⭑ — пролёт выше 40°, самые громкие.</div>
-  </div>
-  <div class="card">
-    <h2>все спутники · 24 часа · <span id="allMinEl"></span></h2>
-    <div class="passlist" id="allList">считаю…</div>
-    <div class="note">Нажми на строку — пульт переключится на этот спутник. Частота — куда слушать без учёта доплера.</div>
   </div>
 </div>
 
@@ -162,8 +155,13 @@ a{color:var(--acc2)}
     <div class="note" id="galNote">Пока пусто. Картинки появятся сами во время приёма.</div>
     <div class="row" style="margin-top:10px">
       <button class="small" id="wavBtn" disabled>⬇ записанный WAV</button>
-      <span class="note">Запись идёт всё время, пока слушает микрофон.</span>
+      <span class="note">Запись идёт всё время, пока слушает микрофон, и сохраняется в телефоне каждые 3 секунды — переоткрытие страницы её не сотрёт.</span>
     </div>
+  </div>
+  <div class="card" id="sessCard" style="display:none">
+    <h2>сохранённые сеансы</h2>
+    <div id="sessList" class="passlist"></div>
+    <div class="note">Хранятся последние 5 сеансов. Записи живут только в этом браузере.</div>
   </div>
 </div>
 
@@ -394,7 +392,7 @@ function instFreq(x) {
     ok[i] = env[i] > 1e-4 ? 1 : 0;
     if (f[i] < 900) f[i] = 900; else if (f[i] > 2600) f[i] = 2600;
   }
-  return { f, ok, prodRe, prodIm };
+  return { f, ok, prodRe, prodIm, env };
 }
 
 // ---------------- синхро и цепочки ----------------
@@ -468,6 +466,9 @@ function findChains(F, minLines = 15) {
   for (const c of merged) {
     if (c.lines.size < minLines) continue;
     extendChain(c, s);
+    dropQuiet(c, F);
+    trimSparse(c);
+    if (c.lines.size < minLines) continue;
     const ns = [...c.lines.keys()].sort((a, b) => a - b);
     const steps = [];
     for (let i = 1; i < ns.length; i++) {
@@ -478,6 +479,55 @@ function findChains(F, minLines = 15) {
     out.push({ lines: new Map([...c.lines.entries()].sort((a, b) => a[0] - b[0])), P: median(steps) });
   }
   return out;
+}
+
+// Синхро в тишине: уровень звука в строке намного ниже громкой части записи —
+// это не сигнал, а фон (закрытый шумодав, убавленная громкость, пауза между картинками).
+const QUIET_REL = 0.008;      // доля от 95-го перцентиля огибающей по всему буферу
+const QUIET_ABS = 0.0015;    // абсолютный порог (вход микрофона −1…1): совсем тишина
+function envRef(F) {
+  if (F._ref != null) return F._ref;
+  const e = F.env, step = Math.max(1, Math.floor(e.length / 4000)), v = [];
+  for (let i = 0; i < e.length; i += step) v.push(e[i]);
+  v.sort((a, b) => a - b);
+  F._ref = v.length ? v[Math.floor(0.95 * (v.length - 1))] : 0;
+  return F._ref;
+}
+function dropQuiet(c, F) {
+  if (!F.env) return;
+  const thr = Math.max(QUIET_REL * envRef(F), QUIET_ABS);
+  const L = Math.floor(SYNC * FS);
+  for (const [n, t] of [...c.lines]) {
+    const a = Math.max(0, Math.floor(t)), b = Math.min(F.env.length, a + L);
+    let m = 0; for (let i = a; i < b; i++) m += F.env[i];
+    m = b > a ? m / (b - a) : 0;
+    if (m < thr) c.lines.delete(n);
+  }
+}
+
+// Обрезка «пустых» краёв цепочки. Настоящий сигнал даёт синхро почти в каждой строке,
+// а в тишине и шуме случайные «синхро» попадаются редко (1 на 4–10 строк) и не на своих местах.
+// Идём с каждого края, пока в окне из 20 строк найдено меньше половины, — такие строки выкидываем.
+function trimSparse(c, win = 20, need = 0.4) {
+  const ns = () => [...c.lines.keys()].sort((a, b) => a - b);
+  let keys = ns();
+  while (keys.length) {
+    const n0 = keys[0];
+    let cnt = 0;
+    for (const k of keys) { if (k < n0 + win) cnt++; else break; }
+    if (cnt / win >= need) break;
+    c.lines.delete(n0);
+    keys = ns();
+  }
+  while (keys.length) {
+    const n1 = keys[keys.length - 1];
+    let cnt = 0;
+    for (let i = keys.length - 1; i >= 0 && keys[i] > n1 - win; i--) cnt++;
+    if (cnt / win >= need) break;
+    c.lines.delete(n1);
+    keys = ns();
+  }
+  if (keys.length) { c.last_n = keys[keys.length - 1]; c.last_t = c.lines.get(c.last_n); }
 }
 
 function extendChain(c, s, maxMiss = 15) {
@@ -1005,44 +1055,6 @@ const COAST = [[612,357,622,353,632,359,645,363,656,373,671,374,681,370,695,376,
 const TLE_FALLBACK = {"name": "ISS (ZARYA)", "l1": "1 25544U 98067A   26314.17503267  .00009346  00000+0  17575-3 0  9996", "l2": "2 25544  51.6322 297.6644 0007292   8.9462 351.1656 15.49289712594382", "src": "кэш от 10.11.2026"};
 const DEF = { lat: 56.3203, lon: 43.9560, alt: 0.073, freq: 437.550, step: 5, minEl: 15 };
 const C_LIGHT = 299792.458; // км/с
-
-/* ================= спутники ================= */
-// Что слушать на UV-5R (только приём). Список FM-спутников — AMSAT, ноябрь 2026.
-const SATS = [
-  { id: "iss", name: "МКС · SSTV", short: "МКС", full: "ISS (ZARYA)", norad: 25544, freq: 437.550,
-    note: "SSTV, серия 35 до 16.11 08:15 UTC · Robot 36 · 36 с передача, ~2 мин пауза" },
-  { id: "iss-aprs", name: "МКС · APRS", short: "МКС", full: "ISS (ZARYA)", norad: 25544, freq: 437.825,
-    note: "пакеты APRS («трели») с «Звезды» — удобно тренировать доплер и поляризацию" },
-  { id: "iss-rpt", name: "МКС · ретранслятор", short: "МКС", full: "ISS (ZARYA)", norad: 25544, freq: 437.800,
-    note: "голосовой ретранслятор — когда его включил экипаж" },
-  { id: "so50", name: "SO-50", short: "SO-50", full: "SAUDISAT 1C (SO-50)", norad: 27607, freq: 436.795,
-    note: "FM-ретранслятор: голоса, если его включил кто-то из радиолюбителей; работает и в тени Земли" },
-  { id: "ao123", name: "AO-123", short: "AO-123", full: "ASRTU-1 (AO-123)", norad: 61781, freq: 435.400,
-    note: "FM-ретранслятор" },
-  { id: "ao91", name: "AO-91 (2 м)", short: "AO-91", full: "RADFXSAT (FOX-1B)", norad: 43017, freq: 145.960,
-    note: "FM-ретранслятор на 2 м; в тени Земли не работает — аккумулятор умер" },
-  { id: "rs95s", name: "RS95S · QMR-KWT-2", short: "RS95S", full: "QMR-KWT-2 (RS95S)", norad: 67291, freq: 436.950,
-    note: "FM и SSTV-картинки — только во время тестов (анонсы на AMSAT-BB)" },
-  { id: "cas3h", name: "CAS-3H (LilacSat-2)", short: "CAS-3H", full: "LILACSAT-2", norad: 40908, freq: 437.200,
-    note: "маяк почти всегда, FM-ретранслятор — нерегулярно" },
-];
-const TLE_FB = {
-  25544: { name: "ISS (ZARYA)", l1: "1 25544U 98067A   26318.17412740  .00009423  00000+0  17665-3 0  9991", l2: "2 25544  51.6324 277.8691 0007368  23.7540 336.3788 15.49365732595000", src: "CelesTrak 14.11" },
-  27607: { name: "SAUDISAT 1C (SO-50)", l1: "1 27607U 02058C   26317.63894344  .00001461  00000+0  18907-3 0  9996", l2: "2 27607  64.5538  26.4907 0068030 234.8420 124.6301 14.83337005286628", src: "CelesTrak 14.11" },
-  61781: { name: "ASRTU-1 (AO-123)", l1: "1 61781U 24199AY  26318.26280889  .00008940  00000+0  24234-3 0  9999", l2: "2 61781  97.2737 185.5742 0014581 123.7544 236.5093 15.37760498156973", src: "CelesTrak 14.11" },
-  43017: { name: "RADFXSAT (FOX-1B)", l1: "1 43017U 17073E   26318.19976583  .00008193  00000+0  34127-3 0  9991", l2: "2 43017  97.4442 182.3489 0144924 168.9873 191.4591 15.14817713488084", src: "CelesTrak 14.11" },
-  67291: { name: "QMR-KWT-2 (RS95S)", l1: "1 67291U 25313AV  26318.17322095  .00017221  00000+0  59477-3 0  9995", l2: "2 67291  97.3795  32.0789 0008151 172.9682 187.1675 15.29977059 48894", src: "CelesTrak 14.11" },
-  40908: { name: "LILACSAT-2", l1: "1 40908U 15049K   26318.25625969  .00020894  00000+0  29594-3 0  9998", l2: "2 40908  97.4448   1.1656 0007680  69.0324 291.1752 15.56482179619059", src: "CelesTrak 14.11" },
-};
-function satById(id) { return SATS.find((x) => x.id === id) || SATS[0]; }
-function tleEpochOf(t) { try { return tleEpoch(t.l1); } catch (e) { return 0; } }
-function tleFor(norad) {
-  // самый свежий из: сохранённого для этого спутника, старого ключа МКС, встроенного
-  const c = [lsGet("tle_" + norad, null), norad === 25544 ? lsGet("tle", null) : null, TLE_FB[norad]]
-    .filter((t) => t && t.l1 && t.l2 && +t.l1.slice(2, 7) === norad);
-  c.sort((a, b) => tleEpochOf(b) - tleEpochOf(a));
-  return c[0] || TLE_FB[25544];
-}
 const LS = localStorage;
 function lsGet(k, d) { try { const v = LS.getItem("sstv_" + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
 function lsSet(k, v) { try { LS.setItem("sstv_" + k, JSON.stringify(v)); } catch (e) {} }
@@ -1051,9 +1063,8 @@ const S = {
   lat: lsGet("lat", DEF.lat), lon: lsGet("lon", DEF.lon), alt: DEF.alt,
   freq: lsGet("freq", DEF.freq), step: lsGet("step", DEF.step), minEl: lsGet("minEl", DEF.minEl),
   denoise: lsGet("denoise", true), wake: lsGet("wake", true),
-  sat: lsGet("sat", "iss"),
 };
-let tle = tleFor(satById(S.sat).norad);
+let tle = lsGet("tle", TLE_FALLBACK);
 let satrec = null, passes = [], curPass = null;
 
 function $(id) { return document.getElementById(id); }
@@ -1071,7 +1082,7 @@ function buildSat() {
     $("chipTle").textContent = "TLE " + age.toFixed(1) + " сут";
     $("chipTle").style.color = age > 7 ? "var(--bad)" : age > 3 ? "var(--acc)" : "var(--mut)";
     $("tleAge").textContent = "возраст: " + age.toFixed(1) + " сут (" + (tle.src || "?") + ")";
-    $("tleBox").value = (tle.name || satById(S.sat).full) + "\n" + tle.l1 + "\n" + tle.l2;
+    $("tleBox").value = (tle.name || "ISS (ZARYA)") + "\n" + tle.l1 + "\n" + tle.l2;
     return true;
   } catch (e) { toast("Плохой TLE: " + e.message); return false; }
 }
@@ -1083,8 +1094,8 @@ function tleEpoch(l1) {
 function observerGd() {
   return { latitude: satellite.degreesToRadians(S.lat), longitude: satellite.degreesToRadians(S.lon), height: S.alt };
 }
-function lookAt(date, rec) {
-  const pv = satellite.propagate(rec || satrec, date);
+function lookAt(date) {
+  const pv = satellite.propagate(satrec, date);
   if (!pv.position) return null;
   const gmst = satellite.gstime(date);
   const ecf = satellite.eciToEcf(pv.position, gmst);
@@ -1104,11 +1115,10 @@ function rangeRate(date) {
 }
 function doppler(date) { return -rangeRate(date) / C_LIGHT * S.freq * 1e6; } // Гц
 
-function refineEdge(t0, t1, rising, rec) { // el пересекает 0 между t0 и t1
+function refineEdge(t0, t1, rising) { // el пересекает 0 между t0 и t1
   for (let i = 0; i < 18; i++) {
     const tm = new Date((t0.getTime() + t1.getTime()) / 2);
-    const la_ = lookAt(tm, rec);
-    const el = la_ ? la_.el : -90;
+    const el = lookAt(tm).el;
     if ((el > 0) === rising) t1 = tm; else t0 = tm;
   }
   return t1;
@@ -1137,87 +1147,6 @@ function computePasses(hours = 72) {
   }
   renderSched();
 }
-let allPasses = [];
-function passesOf(rec, hours, maxN) {
-  const out = [];
-  const start = new Date(Date.now() - 15 * 60e3);
-  const stepS = 30;
-  let la0 = lookAt(start, rec); if (!la0) return out;
-  let inPass = la0.el > 0, aos = inPass ? start : null, maxEl = Math.max(0, la0.el), maxT = start;
-  for (let s = stepS; s < hours * 3600; s += stepS) {
-    const t = new Date(start.getTime() + s * 1000);
-    const la = lookAt(t, rec);
-    if (!la) continue;
-    if (!inPass && la.el > 0) { inPass = true; aos = refineEdge(new Date(t.getTime() - stepS * 1000), t, true, rec); maxEl = la.el; maxT = t; }
-    else if (inPass) {
-      if (la.el > maxEl) { maxEl = la.el; maxT = t; }
-      if (la.el <= 0) {
-        out.push({ aos, los: refineEdge(new Date(t.getTime() - stepS * 1000), t, false, rec), maxEl, maxT });
-        inPass = false; maxEl = 0;
-        if (out.length >= maxN) break;
-      }
-    }
-  }
-  return out;
-}
-function computeAllPasses() {
-  // по одному разу на каждый спутник (у МКС три режима — одна орбита)
-  const seen = new Set(); allPasses = [];
-  for (const sat of SATS) {
-    if (seen.has(sat.norad)) continue;
-    seen.add(sat.norad);
-    let rec;
-    try { rec = satellite.twoline2satrec(tleFor(sat.norad).l1, tleFor(sat.norad).l2); } catch (e) { continue; }
-    for (const p of passesOf(rec, 24, 30)) allPasses.push(Object.assign(p, { sat }));
-  }
-  allPasses.sort((a, b) => a.aos - b.aos);
-  renderAll();
-}
-function renderAll() {
-  $("allMinEl").textContent = "выше " + S.minEl + "°";
-  const box = $("allList");
-  const now = new Date();
-  const good = allPasses.filter((p) => p.maxEl >= S.minEl && p.los > now);
-  if (!good.length) { box.textContent = "нет пролётов выше " + S.minEl + "° за 24 часа"; return; }
-  box.innerHTML = "";
-  for (const p of good.slice(0, 40)) {
-    const d = document.createElement("div");
-    const cur = satById(S.sat).norad === p.sat.norad;
-    d.className = "p" + (p.aos <= now && now <= p.los ? " now" : "");
-    d.style.cursor = "pointer";
-    const day = p.aos.toDateString() === now.toDateString() ? "" : pad(p.aos.getDate()) + "." + pad(p.aos.getMonth() + 1) + " ";
-    d.innerHTML = "<span style='min-width:74px" + (cur ? ";color:#fff;font-weight:700" : "") + "'>" + p.sat.short + "</span>" +
-      "<span>" + day + fmtT(p.aos) + "–" + fmtT(p.los) + "</span>" +
-      "<span class='mut'>" + p.sat.freq.toFixed(3) + "</span>" +
-      "<span class='el " + (p.maxEl > 40 ? "accent" : "") + "'>" + (p.maxEl > 40 ? "⭑ " : "") + p.maxEl.toFixed(0) + "°</span>";
-    d.onclick = () => { selectSat(cur ? S.sat : p.sat.id); document.querySelector('nav button[data-tab="pass"]').click(); };
-    box.appendChild(d);
-  }
-}
-function satLabels() {
-  const sat = satById(S.sat);
-  $("hdrSat").textContent = sat.short;
-  $("mapTitle").textContent = "трасса " + sat.short;
-  $("schedSat").textContent = sat.short;
-  $("satNote").textContent = sat.freq.toFixed(3) + " МГц FM · " + sat.note;
-  $("satSel").value = sat.id;
-}
-function selectSat(id) {
-  const sat = satById(id);
-  const sameOrbit = satById(S.sat).norad === sat.norad;
-  S.sat = sat.id; lsSet("sat", S.sat);
-  S.freq = sat.freq; lsSet("freq", S.freq);
-  $("setFreq").value = S.freq; $("chipFreq").textContent = S.freq.toFixed(3); $("ladder")._built = false;
-  satLabels();
-  if (!sameOrbit) {
-    tle = tleFor(sat.norad);
-    if (buildSat()) computePasses();
-    fetchTle(false);
-  }
-  renderAll();
-  tick();
-}
-
 function passTrack(p, n = 60) {
   const pts = [];
   for (let i = 0; i <= n; i++) {
@@ -1230,19 +1159,17 @@ function passTrack(p, n = 60) {
 
 /* ================= TLE обновление ================= */
 async function fetchTle(manual) {
-  const norad = satById(S.sat).norad;
   const urls = [
-    ["celestrak", "https://celestrak.org/NORAD/elements/gp.php?CATNR=" + norad + "&FORMAT=tle", async (r) => { const t = (await r.text()).trim().split(/\r?\n/); return { name: t[0].trim(), l1: t[1], l2: t[2], src: "CelesTrak" }; }],
+    ["wheretheiss.at", "https://api.wheretheiss.at/v1/satellites/25544/tles", async (r) => { const j = await r.json(); return { l1: j.line1, l2: j.line2, name: "ISS (ZARYA)", src: "wheretheiss.at" }; }],
+    ["celestrak", "https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=tle", async (r) => { const t = (await r.text()).trim().split(/\r?\n/); return { name: t[0].trim(), l1: t[1], l2: t[2], src: "CelesTrak" }; }],
   ];
-  if (norad === 25544) urls.unshift(["wheretheiss.at", "https://api.wheretheiss.at/v1/satellites/25544/tles", async (r) => { const j = await r.json(); return { l1: j.line1, l2: j.line2, name: "ISS (ZARYA)", src: "wheretheiss.at" }; }]);
   for (const [name, url, parse] of urls) {
     try {
       const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!r.ok) continue;
       const t = await parse(r);
       if (t.l1 && t.l1.startsWith("1 ") && t.l2 && t.l2.startsWith("2 ")) {
-        if (+t.l1.slice(2, 7) !== norad) continue;
-        tle = t; lsSet("tle_" + norad, t);
+        tle = t; lsSet("tle", t);
         if (buildSat()) { computePasses(); toast("TLE обновлён (" + name + ")"); }
         return true;
       }
@@ -1250,25 +1177,6 @@ async function fetchTle(manual) {
   }
   if (manual) toast("Не удалось скачать TLE — работаю на сохранённом. Можно вставить вручную в настройках.");
   return false;
-}
-async function fetchAllTle() {
-  // один запрос на всю группу любительских спутников; МКС в ней тоже есть
-  try {
-    const r = await fetch("https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle", { signal: AbortSignal.timeout(10000) });
-    if (!r.ok) return;
-    const L = (await r.text()).split(/\r?\n/).map((x) => x.trimEnd());
-    const want = new Set(SATS.map((x) => x.norad));
-    let n = 0;
-    for (let i = 0; i + 2 < L.length; i++) {
-      if (!L[i + 1].startsWith("1 ") || !L[i + 2].startsWith("2 ")) continue;
-      const id = +L[i + 1].slice(2, 7);
-      if (!want.has(id)) continue;
-      const t = { name: L[i].trim(), l1: L[i + 1], l2: L[i + 2], src: "CelesTrak" };
-      const old = tleFor(id);
-      if (tleEpochOf(t) >= tleEpochOf(old)) { lsSet("tle_" + id, t); n++; }
-    }
-    if (n) computeAllPasses();
-  } catch (e) { /* остаёмся на встроенных */ }
 }
 
 /* ================= интерфейс: вкладки ================= */
@@ -1456,7 +1364,7 @@ function drawMap(laNow) {
   g.fillStyle = "#ff6a13"; g.beginPath(); g.arc(sx, sy, 6, 0, 7); g.fill();
   const [ox, oy] = xy(S.lon, S.lat);
   g.fillStyle = "#30d158"; g.beginPath(); g.arc(ox, oy, 5, 0, 7); g.fill();
-  $("mapNote").textContent = satById(S.sat).short + ": " + la0.lat.toFixed(1) + "°, " + la0.lon.toFixed(1) + "° · высота " + la0.h.toFixed(0) + " км · зелёная точка — ты";
+  $("mapNote").textContent = "МКС: " + la0.lat.toFixed(1) + "°, " + la0.lon.toFixed(1) + "° · высота " + la0.h.toFixed(0) + " км · зелёная точка — ты";
 }
 
 /* ================= расписание ================= */
@@ -1483,6 +1391,145 @@ function renderSched() {
 let audio = null; // {ctx, stream, node, analyser, worker, t0}
 let wavBlob = null, wakeLock = null;
 const galImages = [];
+
+/* ================= хранилище сеансов (IndexedDB) ================= */
+const Store = (() => {
+  let dbp = null;
+  function db() {
+    if (dbp) return dbp;
+    dbp = new Promise((res) => {
+      try {
+        const r = indexedDB.open("iss_sstv", 1);
+        r.onupgradeneeded = () => {
+          const d = r.result;
+          d.createObjectStore("sess", { keyPath: "id" });
+          d.createObjectStore("chunks", { autoIncrement: true }).createIndex("sess", "sess");
+          d.createObjectStore("imgs", { autoIncrement: true }).createIndex("sess", "sess");
+        };
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => res(null);
+      } catch (e) { res(null); }
+    });
+    return dbp;
+  }
+  async function tx(stores, mode, fn) {
+    const d = await db();
+    if (!d) return null;
+    return new Promise((res) => {
+      try {
+        const t = d.transaction(stores, mode);
+        const out = fn(t);
+        t.oncomplete = () => res(out && out.result !== undefined ? out.result : out);
+        t.onerror = t.onabort = () => res(null);
+      } catch (e) { res(null); }
+    });
+  }
+  const all = (store, sess) => tx([store], "readonly", (t) => {
+    const o = t.objectStore(store);
+    return sess == null ? o.getAll() : o.index("sess").getAll(sess);
+  });
+  return {
+    putSess: (v) => tx(["sess"], "readwrite", (t) => t.objectStore("sess").put(v)),
+    addChunk: (v) => tx(["chunks"], "readwrite", (t) => t.objectStore("chunks").add(v)),
+    addImg: (v) => tx(["imgs"], "readwrite", (t) => t.objectStore("imgs").add(v)),
+    sessions: () => all("sess"),
+    chunks: (id) => all("chunks", id),
+    imgs: (id) => all("imgs", id),
+    async del(id) {
+      const d = await db();
+      if (!d) return;
+      await tx(["sess", "chunks", "imgs"], "readwrite", (t) => {
+        t.objectStore("sess").delete(id);
+        for (const st of ["chunks", "imgs"]) {
+          const idx = t.objectStore(st).index("sess");
+          idx.openKeyCursor(IDBKeyRange.only(id)).onsuccess = (e) => {
+            const c = e.target.result;
+            if (c) { t.objectStore(st).delete(c.primaryKey); c.continue(); }
+          };
+        }
+      });
+    },
+  };
+})();
+let sess = null; // текущий сеанс записи
+
+async function sessionWav(id) {
+  const ch = (await Store.chunks(id)) || [];
+  if (!ch.length) return null;
+  ch.sort((a, b) => a.start - b.start);
+  let n = 0;
+  for (const c of ch) n += c.data.byteLength / 2;
+  const i16 = new Int16Array(n);
+  let o = 0;
+  for (const c of ch) { const a = new Int16Array(c.data); i16.set(a, o); o += a.length; }
+  return { i16, fs: ch[0].fs || 12000 };
+}
+function wavBlobOf(i16, fs) {
+  const h = new ArrayBuffer(44);
+  const v = new DataView(h);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + i16.length * 2, true); w(8, "WAVEfmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, fs, true); v.setUint32(28, fs * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, "data"); v.setUint32(40, i16.length * 2, true);
+  return new Blob([h, i16.buffer], { type: "audio/wav" });
+}
+function fname(t, ext) { return "iss_sstv_" + new Date(t).toISOString().replace(/[:T]/g, "-").slice(0, 19) + "." + ext; }
+function fmtDay(t) {
+  const d = new Date(t), now = new Date();
+  return (d.toDateString() === now.toDateString() ? "сегодня" : pad(d.getDate()) + "." + pad(d.getMonth() + 1)) + " " + fmtT(d);
+}
+
+async function renderSessions() {
+  const list = ((await Store.sessions()) || []).sort((a, b) => b.id - a.id);
+  const box = $("sessList");
+  const shown = list.filter((x) => !sess || x.id !== sess.id);
+  $("sessCard").style.display = shown.length ? "block" : "none";
+  box.innerHTML = "";
+  for (const x of shown) {
+    const d = document.createElement("div");
+    d.className = "p";
+    d.style.alignItems = "center";
+    const dur = (x.n || 0) / (x.fs || 12000);
+    d.innerHTML = "<span>" + fmtDay(x.id) + (x.done ? "" : " <span class='accent' title='страница закрылась во время записи'>⚠</span>") +
+      "</span><span>" + fmtHMS(dur) + " · " + (x.imgs || 0) + " фото</span>";
+    const btns = document.createElement("span");
+    btns.style.cssText = "display:flex;gap:6px";
+    const mk = (txt, fn) => { const b = document.createElement("button"); b.className = "small"; b.textContent = txt; b.onclick = fn; btns.appendChild(b); };
+    mk("⬇ WAV", async () => {
+      const r = await sessionWav(x.id);
+      if (!r) { toast("В этом сеансе нет звука"); return; }
+      saveFile(fname(x.id, "wav"), wavBlobOf(r.i16, r.fs));
+    });
+    mk("↻", async () => {
+      const r = await sessionWav(x.id);
+      if (!r) { toast("В этом сеансе нет звука"); return; }
+      const f = new Float32Array(r.i16.length);
+      for (let i = 0; i < f.length; i++) f[i] = r.i16[i] / 32768;
+      decodeBuffer(f, r.fs, "сеанс " + fmtDay(x.id));
+    });
+    mk("✕", async () => { await Store.del(x.id); document.querySelectorAll('[data-sess="' + x.id + '"]').forEach((e) => e.remove()); renderSessions(); });
+    btns.children[1].title = "декодировать заново";
+    btns.children[2].title = "удалить сеанс";
+    d.appendChild(btns);
+    box.appendChild(d);
+  }
+}
+async function restoreGallery() {
+  const list = ((await Store.sessions()) || []).sort((a, b) => a.id - b.id);
+  for (const x of list) {
+    const imgs = (await Store.imgs(x.id)) || [];
+    for (const r of imgs) galleryItem(r.png, r.meta, x.id, true);
+  }
+  renderSessions();
+}
+async function pruneSessions(keep = 5) {
+  const list = ((await Store.sessions()) || []).sort((a, b) => b.id - a.id);
+  for (const x of list.slice(keep)) await Store.del(x.id);
+}
+window.addEventListener("beforeunload", (e) => {
+  if (audio && !audio.closing) { e.preventDefault(); e.returnValue = ""; return ""; }
+});
 
 /* сохранение файлов: на claude.ai — через capability downloads, иначе <a download> */
 let dlNS = null, dlTried = false;
@@ -1520,7 +1567,14 @@ function workerSrc() {
   const base = document.getElementById("robot36src").textContent;
   return base + `
 self.SSTV = SSTV;
-let ld = null;
+let ld = null, flushed = 0;
+function flush(force) {
+  if (!ld || ld.n - flushed < (force ? 1 : 3 * SSTV.FS)) return;
+  const n = ld.n - flushed, i16 = new Int16Array(n);
+  for (let i = 0; i < n; i++) { const v = Math.max(-1, Math.min(1, ld.buf[flushed + i])); i16[i] = v * 32767; }
+  self.postMessage({ type: "chunk", buf: i16.buffer, start: flushed, fs: SSTV.FS }, [i16.buffer]);
+  flushed = ld.n;
+}
 self.onmessage = (e) => {
   const m = e.data;
   if (m.type === "init") {
@@ -1534,6 +1588,7 @@ self.onmessage = (e) => {
     ld.poll();
     const dt = Date.now() - t0;
     if (m.wantStat) self.postMessage({ type: "stat", strength: ld.strength(), progress: ld.progress, ms: dt, n: ld.n });
+    flush(false);
   } else if (m.type === "file") {
     SSTV.SSTVConfig.denoise = m.denoise;
     const x = new Float32Array(m.buf);
@@ -1546,6 +1601,7 @@ self.onmessage = (e) => {
   } else if (m.type === "denoise") { SSTV.SSTVConfig.denoise = m.v; }
   else if (m.type === "finish") {
     ld.finish();
+    flush(true);
     const i16 = new Int16Array(ld.n);
     for (let i = 0; i < ld.n; i++) { let v = Math.max(-1, Math.min(1, ld.buf[i])); i16[i] = v * 32767; }
     self.postMessage({ type: "wav", buf: i16.buffer, fs: SSTV.FS }, [i16.buffer]);
@@ -1578,6 +1634,10 @@ async function startMic() {
     };
     src.connect(node); node.connect(ctx.destination);
     audio = { ctx, stream, node, analyser, worker, t0: Date.now() };
+    await pruneSessions(4);
+    sess = { id: Date.now(), fs: 12000, n: 0, imgs: 0, done: false };
+    Store.putSess(sess);
+    renderSessions();
     $("micBtn").textContent = "■ стоп";
     $("micBtn").classList.remove("primary"); $("micBtn").classList.add("rec");
     $("recTime").style.display = "inline-block";
@@ -1629,16 +1689,19 @@ function onWorkerMsg(e) {
     addImage(new Uint8ClampedArray(m.rgb), m);
     toast("📷 Картинка #" + m.num + " принята! (" + m.lines + " строк, q=" + m.q.toFixed(2) + ")");
     beep();
+  } else if (m.type === "chunk") {
+    if (sess) {
+      Store.addChunk({ sess: sess.id, start: m.start, fs: m.fs, data: m.buf });
+      sess.n = m.start + m.buf.byteLength / 2;
+      Store.putSess(sess);
+    }
   } else if (m.type === "wav") {
     makeWav(new Int16Array(m.buf), m.fs);
+    if (sess) { sess.done = true; Store.putSess(sess); sess = null; renderSessions(); }
     if (audio && audio.closing) { audio.worker.terminate(); audio = null; }
   }
 }
 function addImage(rgba, meta) {
-  const box = $("gal");
-  $("galNote").style.display = "none";
-  const wrap = document.createElement("div");
-  wrap.className = "im";
   const big = document.createElement("canvas");
   big.width = 640; big.height = 480;
   const tmp = document.createElement("canvas");
@@ -1647,59 +1710,73 @@ function addImage(rgba, meta) {
   const g = big.getContext("2d");
   g.imageSmoothingEnabled = false;
   g.drawImage(tmp, 0, 0, 640, 480);
-  const t = meta.w0 ? new Date(meta.w0 * 1000) : new Date();
-  const name = "iss_sstv_" + t.toISOString().replace(/[:T]/g, "-").slice(0, 19) + ".png";
+  const png = big.toDataURL("image/png");
+  const m = { num: meta.num, lines: meta.lines, q: meta.q, w0: meta.w0 || Date.now() / 1000, fromFile: !!meta.fromFile, label: meta.label || "" };
+  galleryItem(png, m, sess ? sess.id : null, false);
+  if (sess && !meta.fromFile) {
+    Store.addImg({ sess: sess.id, png, meta: m });
+    sess.imgs = (sess.imgs || 0) + 1;
+    Store.putSess(sess);
+  }
+}
+function galleryItem(png, meta, sessId, old) {
+  const box = $("gal");
+  $("galNote").style.display = "none";
+  const wrap = document.createElement("div");
+  wrap.className = "im";
+  if (sessId) wrap.dataset.sess = sessId;
+  const t = new Date((meta.w0 || Date.now() / 1000) * 1000);
   const im = document.createElement("img");
-  im.src = big.toDataURL("image/png");
-  im.style.cssText = "width:100%;border-radius:6px;image-rendering:pixelated";
+  im.src = png;
+  im.style.cssText = "width:100%;border-radius:2px;image-rendering:pixelated";
   const cap = document.createElement("div");
   cap.className = "cap";
-  cap.innerHTML = "<span>#" + meta.num + (meta.fromFile ? "·файл" : "") + " · " + fmtT(t) + " · " + meta.lines + " стр · q " + meta.q.toFixed(2) + "</span>";
+  cap.innerHTML = "<span>" + (old ? fmtDay(t) : "#" + meta.num + " · " + fmtT(t)) + (meta.fromFile ? " · файл" : "") +
+    " · " + meta.lines + " стр · q " + (+meta.q).toFixed(2) + "</span>";
   const dl = document.createElement("a");
   dl.textContent = "⬇";
   dl.href = "#";
-  dl.onclick = (ev) => { ev.preventDefault(); saveFile(name, im.src); };
+  dl.onclick = (ev) => { ev.preventDefault(); saveFile(fname(t, "png"), png); };
   cap.appendChild(dl);
   wrap.appendChild(im); wrap.appendChild(cap);
   box.prepend(wrap);
   galImages.push(meta);
-  document.querySelector('[data-tab="gal"] .ic').textContent = "🖼✓";
+  if (!old) document.querySelector('[data-tab="gal"] .ic').textContent = "🖼✓";
 }
 /* декодирование из файла записи (wav/m4a/что угодно, что умеет браузер) */
+function decodeBuffer(x, rate, what) {
+  $("wavInNote").textContent = "декодирую " + what + "…";
+  toast("Декодирую " + what + "…");
+  const w = new Worker(URL.createObjectURL(new Blob([workerSrc()], { type: "text/javascript" })));
+  w.onmessage = (e) => {
+    if (e.data.type === "image") onWorkerMsg(e);
+    else if (e.data.type === "filedone") {
+      const msg = e.data.count
+        ? "готово: картинок " + e.data.count + " — смотри вкладку Фото"
+        : "в записи не нашлось Robot 36 (слишком шумно или не тот режим)";
+      $("wavInNote").textContent = msg; toast(msg);
+      w.terminate();
+    }
+  };
+  w.postMessage({ type: "file", buf: x.buffer, rate, denoise: S.denoise }, [x.buffer]);
+}
 $("wavIn").onchange = async () => {
   const f = $("wavIn").files[0];
   if (!f) return;
-  $("wavInNote").textContent = "декодирую " + f.name + "…";
   try {
     const ab = await f.arrayBuffer();
     const dctx = new (window.AudioContext || window.webkitAudioContext)();
     const buf = await dctx.decodeAudioData(ab);
-    const x = buf.getChannelData(0);
-    const w = new Worker(URL.createObjectURL(new Blob([workerSrc()], { type: "text/javascript" })));
-    w.onmessage = (e) => {
-      if (e.data.type === "image") onWorkerMsg(e);
-      else if (e.data.type === "filedone") {
-        $("wavInNote").textContent = e.data.count
-          ? "готово: картинок " + e.data.count + " — смотри вкладку Фото"
-          : "в записи не нашлось Robot 36 (слишком шумно или не тот режим)";
-        w.terminate(); dctx.close();
-      }
-    };
-    const cp = new Float32Array(x);
-    w.postMessage({ type: "file", buf: cp.buffer, rate: buf.sampleRate, denoise: S.denoise }, [cp.buffer]);
+    const x = new Float32Array(buf.getChannelData(0));
+    dctx.close();
+    decodeBuffer(x, buf.sampleRate, f.name);
   } catch (e) { $("wavInNote").textContent = "не смог прочитать файл: " + e.message; }
 };
 function makeWav(i16, fs) {
-  const h = new ArrayBuffer(44);
-  const v = new DataView(h);
-  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-  w(0, "RIFF"); v.setUint32(4, 36 + i16.length * 2, true); w(8, "WAVEfmt ");
-  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, fs, true); v.setUint32(28, fs * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  w(36, "data"); v.setUint32(40, i16.length * 2, true);
-  wavBlob = new Blob([h, i16.buffer], { type: "audio/wav" });
+  wavBlob = wavBlobOf(i16, fs);
+  const t0 = sess ? sess.id : Date.now();
   $("wavBtn").disabled = false;
-  $("wavBtn").onclick = () => saveFile("iss_sstv_" + new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19) + ".wav", wavBlob);
+  $("wavBtn").onclick = () => saveFile(fname(t0, "wav"), wavBlob);
   toast("Запись готова — кнопка WAV на вкладке Фото (" + (i16.length / fs / 60).toFixed(1) + " мин)");
 }
 function drawWf() {
@@ -1746,9 +1823,9 @@ function bindSettings() {
   $("setLat").onchange = $("setLon").onchange = () => {
     S.lat = +$("setLat").value; S.lon = +$("setLon").value;
     lsSet("lat", S.lat); lsSet("lon", S.lon);
-    computePasses(); computeAllPasses(); toast("Пересчитал пролёты для нового места");
+    computePasses(); toast("Пересчитал пролёты для нового места");
   };
-  $("setMinEl").onchange = () => { S.minEl = +$("setMinEl").value; lsSet("minEl", S.minEl); renderSched(); renderAll(); };
+  $("setMinEl").onchange = () => { S.minEl = +$("setMinEl").value; lsSet("minEl", S.minEl); renderSched(); };
   $("setDenoise").onchange = () => { S.denoise = $("setDenoise").checked; lsSet("denoise", S.denoise); if (audio && audio.worker) audio.worker.postMessage({ type: "denoise", v: S.denoise }); };
   $("setWake").onchange = () => { S.wake = $("setWake").checked; lsSet("wake", S.wake); };
   $("gpsBtn").onclick = () => {
@@ -1760,7 +1837,7 @@ function bindSettings() {
       $("setLat").value = S.lat; $("setLon").value = S.lon;
       lsSet("lat", S.lat); lsSet("lon", S.lon);
       $("locNote").textContent = "взято с GPS (±" + Math.round(pos.coords.accuracy) + " м)";
-      computePasses(); computeAllPasses();
+      computePasses();
     }, (err) => { $("locNote").textContent = "GPS не дал координаты: " + err.message; }, { enableHighAccuracy: true, timeout: 15000 });
   };
   $("tleBtn").onclick = () => fetchTle(true);
@@ -1768,27 +1845,17 @@ function bindSettings() {
     const ls_ = $("tleBox").value.trim().split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     const l1 = ls_.find((s) => s.startsWith("1 ")), l2 = ls_.find((s) => s.startsWith("2 "));
     if (!l1 || !l2) { toast("Нужны две строки TLE (начинаются с «1 » и «2 »)"); return; }
-    tle = { name: ls_.length > 2 ? ls_[0] : satById(S.sat).full, l1, l2, src: "вручную" };
-    lsSet("tle_" + (+l1.slice(2, 7)), tle);
+    tle = { name: ls_.length > 2 ? ls_[0] : "ISS", l1, l2, src: "вручную" };
+    lsSet("tle", tle);
     if (buildSat()) { computePasses(); toast("TLE применён"); }
   };
 }
 
 /* ================= старт ================= */
 bindSettings();
-(function () {
-  const sel = $("satSel");
-  for (const sat of SATS) { const o = document.createElement("option"); o.value = sat.id; o.textContent = sat.name + " · " + sat.freq.toFixed(3); sel.appendChild(o); }
-  sel.onchange = () => selectSat(sel.value);
-  // частота из настроек остаётся, если её меняли руками; иначе — частота спутника
-  if (lsGet("freq", null) == null) { S.freq = satById(S.sat).freq; $("setFreq").value = S.freq; $("chipFreq").textContent = S.freq.toFixed(3); }
-  satLabels();
-})();
 if (buildSat()) computePasses();
 fetchTle(false);
-setTimeout(computeAllPasses, 300);
-fetchAllTle();
-setInterval(computeAllPasses, 10 * 60e3);
+restoreGallery();
 setInterval(tick, 1000);
 tick();
 document.addEventListener("visibilitychange", async () => {
