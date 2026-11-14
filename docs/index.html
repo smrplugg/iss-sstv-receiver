@@ -69,13 +69,18 @@ a{color:var(--acc2)}
 <body>
 <div id="app">
 <header>
-  <h1><span style="color:var(--live)">◉</span> SSTV&nbsp;·&nbsp;МКС <span class="sub">пульт пролёта</span></h1>
+  <h1><span style="color:var(--live)">◉</span> SSTV&nbsp;·&nbsp;<span id="hdrSat">МКС</span> <span class="sub">пульт пролёта</span></h1>
   <span class="chip" id="chipFreq">437.550</span>
   <span class="sub" id="chipTle">TLE…</span>
 </header>
 
 <!-- ПРОЛЁТ -->
 <div class="tab on" id="tab-pass">
+  <div class="card" style="padding:10px 12px">
+    <h2>спутник</h2>
+    <select id="satSel"></select>
+    <div class="note" id="satNote"></div>
+  </div>
   <div class="card" id="cardCountdown">
     <h2 id="cdTitle">до пролёта</h2>
     <div class="big" id="cdBig">—:—:—</div>
@@ -89,9 +94,6 @@ a{color:var(--acc2)}
     <div class="row" style="justify-content:center;gap:16px;margin-top:4px">
       <span class="mut" style="font:13px var(--mono)" id="dopExact">доплер +0.0 кГц</span>
       <span class="cyan" style="font:13px var(--mono)" id="dialNext"></span>
-    </div>
-    <div class="toggle" style="justify-content:center;margin-top:8px">
-      <input type="checkbox" id="beepOnSwitch" checked><label for="beepOnSwitch" style="margin:0;font-size:13px" class="mut">пикать при смене канала</label>
     </div>
   </div>
 
@@ -132,7 +134,7 @@ a{color:var(--acc2)}
 <!-- КАРТА -->
 <div class="tab" id="tab-map">
   <div class="card">
-    <h2>трасса МКС</h2>
+    <h2 id="mapTitle">трасса МКС</h2>
     <canvas id="map" width="1024" height="512"></canvas>
     <div class="note" id="mapNote"></div>
   </div>
@@ -141,9 +143,14 @@ a{color:var(--acc2)}
 <!-- РАСПИСАНИЕ -->
 <div class="tab" id="tab-sched">
   <div class="card">
-    <h2>пролёты · 72 часа · <span id="schedMinEl"></span></h2>
+    <h2><span id="schedSat">МКС</span> · пролёты · 72 часа · <span id="schedMinEl"></span></h2>
     <div class="passlist" id="passList">считаю…</div>
     <div class="note">Времена местные. ⭑ — пролёт выше 40°, самые громкие.</div>
+  </div>
+  <div class="card">
+    <h2>все спутники · 24 часа · <span id="allMinEl"></span></h2>
+    <div class="passlist" id="allList">считаю…</div>
+    <div class="note">Нажми на строку — пульт переключится на этот спутник. Частота — куда слушать без учёта доплера.</div>
   </div>
 </div>
 
@@ -998,6 +1005,44 @@ const COAST = [[612,357,622,353,632,359,645,363,656,373,671,374,681,370,695,376,
 const TLE_FALLBACK = {"name": "ISS (ZARYA)", "l1": "1 25544U 98067A   26314.17503267  .00009346  00000+0  17575-3 0  9996", "l2": "2 25544  51.6322 297.6644 0007292   8.9462 351.1656 15.49289712594382", "src": "кэш от 10.11.2026"};
 const DEF = { lat: 56.3203, lon: 43.9560, alt: 0.073, freq: 437.550, step: 5, minEl: 15 };
 const C_LIGHT = 299792.458; // км/с
+
+/* ================= спутники ================= */
+// Что слушать на UV-5R (только приём). Список FM-спутников — AMSAT, ноябрь 2026.
+const SATS = [
+  { id: "iss", name: "МКС · SSTV", short: "МКС", full: "ISS (ZARYA)", norad: 25544, freq: 437.550,
+    note: "SSTV, серия 35 до 16.11 08:15 UTC · Robot 36 · 36 с передача, ~2 мин пауза" },
+  { id: "iss-aprs", name: "МКС · APRS", short: "МКС", full: "ISS (ZARYA)", norad: 25544, freq: 437.825,
+    note: "пакеты APRS («трели») с «Звезды» — удобно тренировать доплер и поляризацию" },
+  { id: "iss-rpt", name: "МКС · ретранслятор", short: "МКС", full: "ISS (ZARYA)", norad: 25544, freq: 437.800,
+    note: "голосовой ретранслятор — когда его включил экипаж" },
+  { id: "so50", name: "SO-50", short: "SO-50", full: "SAUDISAT 1C (SO-50)", norad: 27607, freq: 436.795,
+    note: "FM-ретранслятор: голоса, если его включил кто-то из радиолюбителей; работает и в тени Земли" },
+  { id: "ao123", name: "AO-123", short: "AO-123", full: "ASRTU-1 (AO-123)", norad: 61781, freq: 435.400,
+    note: "FM-ретранслятор" },
+  { id: "ao91", name: "AO-91 (2 м)", short: "AO-91", full: "RADFXSAT (FOX-1B)", norad: 43017, freq: 145.960,
+    note: "FM-ретранслятор на 2 м; в тени Земли не работает — аккумулятор умер" },
+  { id: "rs95s", name: "RS95S · QMR-KWT-2", short: "RS95S", full: "QMR-KWT-2 (RS95S)", norad: 67291, freq: 436.950,
+    note: "FM и SSTV-картинки — только во время тестов (анонсы на AMSAT-BB)" },
+  { id: "cas3h", name: "CAS-3H (LilacSat-2)", short: "CAS-3H", full: "LILACSAT-2", norad: 40908, freq: 437.200,
+    note: "маяк почти всегда, FM-ретранслятор — нерегулярно" },
+];
+const TLE_FB = {
+  25544: { name: "ISS (ZARYA)", l1: "1 25544U 98067A   26318.17412740  .00009423  00000+0  17665-3 0  9991", l2: "2 25544  51.6324 277.8691 0007368  23.7540 336.3788 15.49365732595000", src: "CelesTrak 14.11" },
+  27607: { name: "SAUDISAT 1C (SO-50)", l1: "1 27607U 02058C   26317.63894344  .00001461  00000+0  18907-3 0  9996", l2: "2 27607  64.5538  26.4907 0068030 234.8420 124.6301 14.83337005286628", src: "CelesTrak 14.11" },
+  61781: { name: "ASRTU-1 (AO-123)", l1: "1 61781U 24199AY  26318.26280889  .00008940  00000+0  24234-3 0  9999", l2: "2 61781  97.2737 185.5742 0014581 123.7544 236.5093 15.37760498156973", src: "CelesTrak 14.11" },
+  43017: { name: "RADFXSAT (FOX-1B)", l1: "1 43017U 17073E   26318.19976583  .00008193  00000+0  34127-3 0  9991", l2: "2 43017  97.4442 182.3489 0144924 168.9873 191.4591 15.14817713488084", src: "CelesTrak 14.11" },
+  67291: { name: "QMR-KWT-2 (RS95S)", l1: "1 67291U 25313AV  26318.17322095  .00017221  00000+0  59477-3 0  9995", l2: "2 67291  97.3795  32.0789 0008151 172.9682 187.1675 15.29977059 48894", src: "CelesTrak 14.11" },
+  40908: { name: "LILACSAT-2", l1: "1 40908U 15049K   26318.25625969  .00020894  00000+0  29594-3 0  9998", l2: "2 40908  97.4448   1.1656 0007680  69.0324 291.1752 15.56482179619059", src: "CelesTrak 14.11" },
+};
+function satById(id) { return SATS.find((x) => x.id === id) || SATS[0]; }
+function tleEpochOf(t) { try { return tleEpoch(t.l1); } catch (e) { return 0; } }
+function tleFor(norad) {
+  // самый свежий из: сохранённого для этого спутника, старого ключа МКС, встроенного
+  const c = [lsGet("tle_" + norad, null), norad === 25544 ? lsGet("tle", null) : null, TLE_FB[norad]]
+    .filter((t) => t && t.l1 && t.l2 && +t.l1.slice(2, 7) === norad);
+  c.sort((a, b) => tleEpochOf(b) - tleEpochOf(a));
+  return c[0] || TLE_FB[25544];
+}
 const LS = localStorage;
 function lsGet(k, d) { try { const v = LS.getItem("sstv_" + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
 function lsSet(k, v) { try { LS.setItem("sstv_" + k, JSON.stringify(v)); } catch (e) {} }
@@ -1006,8 +1051,9 @@ const S = {
   lat: lsGet("lat", DEF.lat), lon: lsGet("lon", DEF.lon), alt: DEF.alt,
   freq: lsGet("freq", DEF.freq), step: lsGet("step", DEF.step), minEl: lsGet("minEl", DEF.minEl),
   denoise: lsGet("denoise", true), wake: lsGet("wake", true),
+  sat: lsGet("sat", "iss"),
 };
-let tle = lsGet("tle", TLE_FALLBACK);
+let tle = tleFor(satById(S.sat).norad);
 let satrec = null, passes = [], curPass = null;
 
 function $(id) { return document.getElementById(id); }
@@ -1025,7 +1071,7 @@ function buildSat() {
     $("chipTle").textContent = "TLE " + age.toFixed(1) + " сут";
     $("chipTle").style.color = age > 7 ? "var(--bad)" : age > 3 ? "var(--acc)" : "var(--mut)";
     $("tleAge").textContent = "возраст: " + age.toFixed(1) + " сут (" + (tle.src || "?") + ")";
-    $("tleBox").value = (tle.name || "ISS (ZARYA)") + "\n" + tle.l1 + "\n" + tle.l2;
+    $("tleBox").value = (tle.name || satById(S.sat).full) + "\n" + tle.l1 + "\n" + tle.l2;
     return true;
   } catch (e) { toast("Плохой TLE: " + e.message); return false; }
 }
@@ -1037,8 +1083,8 @@ function tleEpoch(l1) {
 function observerGd() {
   return { latitude: satellite.degreesToRadians(S.lat), longitude: satellite.degreesToRadians(S.lon), height: S.alt };
 }
-function lookAt(date) {
-  const pv = satellite.propagate(satrec, date);
+function lookAt(date, rec) {
+  const pv = satellite.propagate(rec || satrec, date);
   if (!pv.position) return null;
   const gmst = satellite.gstime(date);
   const ecf = satellite.eciToEcf(pv.position, gmst);
@@ -1058,10 +1104,11 @@ function rangeRate(date) {
 }
 function doppler(date) { return -rangeRate(date) / C_LIGHT * S.freq * 1e6; } // Гц
 
-function refineEdge(t0, t1, rising) { // el пересекает 0 между t0 и t1
+function refineEdge(t0, t1, rising, rec) { // el пересекает 0 между t0 и t1
   for (let i = 0; i < 18; i++) {
     const tm = new Date((t0.getTime() + t1.getTime()) / 2);
-    const el = lookAt(tm).el;
+    const la_ = lookAt(tm, rec);
+    const el = la_ ? la_.el : -90;
     if ((el > 0) === rising) t1 = tm; else t0 = tm;
   }
   return t1;
@@ -1090,6 +1137,87 @@ function computePasses(hours = 72) {
   }
   renderSched();
 }
+let allPasses = [];
+function passesOf(rec, hours, maxN) {
+  const out = [];
+  const start = new Date(Date.now() - 15 * 60e3);
+  const stepS = 30;
+  let la0 = lookAt(start, rec); if (!la0) return out;
+  let inPass = la0.el > 0, aos = inPass ? start : null, maxEl = Math.max(0, la0.el), maxT = start;
+  for (let s = stepS; s < hours * 3600; s += stepS) {
+    const t = new Date(start.getTime() + s * 1000);
+    const la = lookAt(t, rec);
+    if (!la) continue;
+    if (!inPass && la.el > 0) { inPass = true; aos = refineEdge(new Date(t.getTime() - stepS * 1000), t, true, rec); maxEl = la.el; maxT = t; }
+    else if (inPass) {
+      if (la.el > maxEl) { maxEl = la.el; maxT = t; }
+      if (la.el <= 0) {
+        out.push({ aos, los: refineEdge(new Date(t.getTime() - stepS * 1000), t, false, rec), maxEl, maxT });
+        inPass = false; maxEl = 0;
+        if (out.length >= maxN) break;
+      }
+    }
+  }
+  return out;
+}
+function computeAllPasses() {
+  // по одному разу на каждый спутник (у МКС три режима — одна орбита)
+  const seen = new Set(); allPasses = [];
+  for (const sat of SATS) {
+    if (seen.has(sat.norad)) continue;
+    seen.add(sat.norad);
+    let rec;
+    try { rec = satellite.twoline2satrec(tleFor(sat.norad).l1, tleFor(sat.norad).l2); } catch (e) { continue; }
+    for (const p of passesOf(rec, 24, 30)) allPasses.push(Object.assign(p, { sat }));
+  }
+  allPasses.sort((a, b) => a.aos - b.aos);
+  renderAll();
+}
+function renderAll() {
+  $("allMinEl").textContent = "выше " + S.minEl + "°";
+  const box = $("allList");
+  const now = new Date();
+  const good = allPasses.filter((p) => p.maxEl >= S.minEl && p.los > now);
+  if (!good.length) { box.textContent = "нет пролётов выше " + S.minEl + "° за 24 часа"; return; }
+  box.innerHTML = "";
+  for (const p of good.slice(0, 40)) {
+    const d = document.createElement("div");
+    const cur = satById(S.sat).norad === p.sat.norad;
+    d.className = "p" + (p.aos <= now && now <= p.los ? " now" : "");
+    d.style.cursor = "pointer";
+    const day = p.aos.toDateString() === now.toDateString() ? "" : pad(p.aos.getDate()) + "." + pad(p.aos.getMonth() + 1) + " ";
+    d.innerHTML = "<span style='min-width:74px" + (cur ? ";color:#fff;font-weight:700" : "") + "'>" + p.sat.short + "</span>" +
+      "<span>" + day + fmtT(p.aos) + "–" + fmtT(p.los) + "</span>" +
+      "<span class='mut'>" + p.sat.freq.toFixed(3) + "</span>" +
+      "<span class='el " + (p.maxEl > 40 ? "accent" : "") + "'>" + (p.maxEl > 40 ? "⭑ " : "") + p.maxEl.toFixed(0) + "°</span>";
+    d.onclick = () => { selectSat(cur ? S.sat : p.sat.id); document.querySelector('nav button[data-tab="pass"]').click(); };
+    box.appendChild(d);
+  }
+}
+function satLabels() {
+  const sat = satById(S.sat);
+  $("hdrSat").textContent = sat.short;
+  $("mapTitle").textContent = "трасса " + sat.short;
+  $("schedSat").textContent = sat.short;
+  $("satNote").textContent = sat.freq.toFixed(3) + " МГц FM · " + sat.note;
+  $("satSel").value = sat.id;
+}
+function selectSat(id) {
+  const sat = satById(id);
+  const sameOrbit = satById(S.sat).norad === sat.norad;
+  S.sat = sat.id; lsSet("sat", S.sat);
+  S.freq = sat.freq; lsSet("freq", S.freq);
+  $("setFreq").value = S.freq; $("chipFreq").textContent = S.freq.toFixed(3); $("ladder")._built = false;
+  satLabels();
+  if (!sameOrbit) {
+    tle = tleFor(sat.norad);
+    if (buildSat()) computePasses();
+    fetchTle(false);
+  }
+  renderAll();
+  tick();
+}
+
 function passTrack(p, n = 60) {
   const pts = [];
   for (let i = 0; i <= n; i++) {
@@ -1102,17 +1230,19 @@ function passTrack(p, n = 60) {
 
 /* ================= TLE обновление ================= */
 async function fetchTle(manual) {
+  const norad = satById(S.sat).norad;
   const urls = [
-    ["wheretheiss.at", "https://api.wheretheiss.at/v1/satellites/25544/tles", async (r) => { const j = await r.json(); return { l1: j.line1, l2: j.line2, name: "ISS (ZARYA)", src: "wheretheiss.at" }; }],
-    ["celestrak", "https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=tle", async (r) => { const t = (await r.text()).trim().split(/\r?\n/); return { name: t[0].trim(), l1: t[1], l2: t[2], src: "CelesTrak" }; }],
+    ["celestrak", "https://celestrak.org/NORAD/elements/gp.php?CATNR=" + norad + "&FORMAT=tle", async (r) => { const t = (await r.text()).trim().split(/\r?\n/); return { name: t[0].trim(), l1: t[1], l2: t[2], src: "CelesTrak" }; }],
   ];
+  if (norad === 25544) urls.unshift(["wheretheiss.at", "https://api.wheretheiss.at/v1/satellites/25544/tles", async (r) => { const j = await r.json(); return { l1: j.line1, l2: j.line2, name: "ISS (ZARYA)", src: "wheretheiss.at" }; }]);
   for (const [name, url, parse] of urls) {
     try {
       const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!r.ok) continue;
       const t = await parse(r);
       if (t.l1 && t.l1.startsWith("1 ") && t.l2 && t.l2.startsWith("2 ")) {
-        tle = t; lsSet("tle", t);
+        if (+t.l1.slice(2, 7) !== norad) continue;
+        tle = t; lsSet("tle_" + norad, t);
         if (buildSat()) { computePasses(); toast("TLE обновлён (" + name + ")"); }
         return true;
       }
@@ -1120,6 +1250,25 @@ async function fetchTle(manual) {
   }
   if (manual) toast("Не удалось скачать TLE — работаю на сохранённом. Можно вставить вручную в настройках.");
   return false;
+}
+async function fetchAllTle() {
+  // один запрос на всю группу любительских спутников; МКС в ней тоже есть
+  try {
+    const r = await fetch("https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle", { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return;
+    const L = (await r.text()).split(/\r?\n/).map((x) => x.trimEnd());
+    const want = new Set(SATS.map((x) => x.norad));
+    let n = 0;
+    for (let i = 0; i + 2 < L.length; i++) {
+      if (!L[i + 1].startsWith("1 ") || !L[i + 2].startsWith("2 ")) continue;
+      const id = +L[i + 1].slice(2, 7);
+      if (!want.has(id)) continue;
+      const t = { name: L[i].trim(), l1: L[i + 1], l2: L[i + 2], src: "CelesTrak" };
+      const old = tleFor(id);
+      if (tleEpochOf(t) >= tleEpochOf(old)) { lsSet("tle_" + id, t); n++; }
+    }
+    if (n) computeAllPasses();
+  } catch (e) { /* остаёмся на встроенных */ }
 }
 
 /* ================= интерфейс: вкладки ================= */
@@ -1307,7 +1456,7 @@ function drawMap(laNow) {
   g.fillStyle = "#ff6a13"; g.beginPath(); g.arc(sx, sy, 6, 0, 7); g.fill();
   const [ox, oy] = xy(S.lon, S.lat);
   g.fillStyle = "#30d158"; g.beginPath(); g.arc(ox, oy, 5, 0, 7); g.fill();
-  $("mapNote").textContent = "МКС: " + la0.lat.toFixed(1) + "°, " + la0.lon.toFixed(1) + "° · высота " + la0.h.toFixed(0) + " км · зелёная точка — ты";
+  $("mapNote").textContent = satById(S.sat).short + ": " + la0.lat.toFixed(1) + "°, " + la0.lon.toFixed(1) + "° · высота " + la0.h.toFixed(0) + " км · зелёная точка — ты";
 }
 
 /* ================= расписание ================= */
@@ -1597,9 +1746,9 @@ function bindSettings() {
   $("setLat").onchange = $("setLon").onchange = () => {
     S.lat = +$("setLat").value; S.lon = +$("setLon").value;
     lsSet("lat", S.lat); lsSet("lon", S.lon);
-    computePasses(); toast("Пересчитал пролёты для нового места");
+    computePasses(); computeAllPasses(); toast("Пересчитал пролёты для нового места");
   };
-  $("setMinEl").onchange = () => { S.minEl = +$("setMinEl").value; lsSet("minEl", S.minEl); renderSched(); };
+  $("setMinEl").onchange = () => { S.minEl = +$("setMinEl").value; lsSet("minEl", S.minEl); renderSched(); renderAll(); };
   $("setDenoise").onchange = () => { S.denoise = $("setDenoise").checked; lsSet("denoise", S.denoise); if (audio && audio.worker) audio.worker.postMessage({ type: "denoise", v: S.denoise }); };
   $("setWake").onchange = () => { S.wake = $("setWake").checked; lsSet("wake", S.wake); };
   $("gpsBtn").onclick = () => {
@@ -1611,7 +1760,7 @@ function bindSettings() {
       $("setLat").value = S.lat; $("setLon").value = S.lon;
       lsSet("lat", S.lat); lsSet("lon", S.lon);
       $("locNote").textContent = "взято с GPS (±" + Math.round(pos.coords.accuracy) + " м)";
-      computePasses();
+      computePasses(); computeAllPasses();
     }, (err) => { $("locNote").textContent = "GPS не дал координаты: " + err.message; }, { enableHighAccuracy: true, timeout: 15000 });
   };
   $("tleBtn").onclick = () => fetchTle(true);
@@ -1619,16 +1768,27 @@ function bindSettings() {
     const ls_ = $("tleBox").value.trim().split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     const l1 = ls_.find((s) => s.startsWith("1 ")), l2 = ls_.find((s) => s.startsWith("2 "));
     if (!l1 || !l2) { toast("Нужны две строки TLE (начинаются с «1 » и «2 »)"); return; }
-    tle = { name: ls_.length > 2 ? ls_[0] : "ISS", l1, l2, src: "вручную" };
-    lsSet("tle", tle);
+    tle = { name: ls_.length > 2 ? ls_[0] : satById(S.sat).full, l1, l2, src: "вручную" };
+    lsSet("tle_" + (+l1.slice(2, 7)), tle);
     if (buildSat()) { computePasses(); toast("TLE применён"); }
   };
 }
 
 /* ================= старт ================= */
 bindSettings();
+(function () {
+  const sel = $("satSel");
+  for (const sat of SATS) { const o = document.createElement("option"); o.value = sat.id; o.textContent = sat.name + " · " + sat.freq.toFixed(3); sel.appendChild(o); }
+  sel.onchange = () => selectSat(sel.value);
+  // частота из настроек остаётся, если её меняли руками; иначе — частота спутника
+  if (lsGet("freq", null) == null) { S.freq = satById(S.sat).freq; $("setFreq").value = S.freq; $("chipFreq").textContent = S.freq.toFixed(3); }
+  satLabels();
+})();
 if (buildSat()) computePasses();
 fetchTle(false);
+setTimeout(computeAllPasses, 300);
+fetchAllTle();
+setInterval(computeAllPasses, 10 * 60e3);
 setInterval(tick, 1000);
 tick();
 document.addEventListener("visibilitychange", async () => {
