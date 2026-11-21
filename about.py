@@ -3,9 +3,9 @@
 Заполни AUTHOR и REPO_URL — они появятся в заголовке окна и в разделе
 «О программе» во вкладке «Настройки». Пустые поля просто не показываются.
 """
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 
-APP_NAME = "SSTV · МКС — пульт приёма"
+APP_NAME = "SSTV · МКС"
 AUTHOR = "smrplugg"
 REPO_URL = "https://github.com/smrplugg/iss-sstv-receiver"
 

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import functools
 import json
 import math
 import sys
@@ -18,6 +19,9 @@ import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
+import i18n  # noqa: E402
+i18n.install_qt()          # все тексты окна дальше идут через i18n.tr()
+
 try:
     from PyQt5.QtMultimedia import QAudio, QAudioDeviceInfo, QAudioFormat, QAudioOutput
     HAVE_AUDIO = True
@@ -27,7 +31,7 @@ except Exception:  # noqa: BLE001
 from paths import DATA as HERE, UI as UI_DIR  # noqa: E402
 STATE_FILE = HERE / "ui_state.json"
 
-# «Пульт»: чёрный, серый, белый; оранжевый — только то, что идёт сейчас; красный — ошибка
+# Палитра: чёрный, серый, белый; оранжевый — только то, что идёт сейчас; красный — ошибка
 C = dict(bg="#000000", panel="#060606", panel2="#0d0d0d", line="#1f1f1f", text="#f2f2f2", muted="#8c8c8c",
          faint="#4d4d4d", accent="#ffffff", live="#ff6a13", ok="#f2f2f2", warn="#ffb020", dimwarn="#8c8c8c",
          idle="#3a3a3a", bad="#ff3b30", off="#1a1a1a", green="#30d158", sea="#000000", land="#101010",
@@ -80,8 +84,80 @@ def dur(s):
     return f"{h}:{m:02d}:{x:02d}" if h else f"{m:02d}:{x:02d}"
 
 
+# Спутники, которые передают SSTV в режиме Robot 36 (его и понимает декодер).
+# Источник: AMSAT, «Image Satellites»; NORAD — CelesTrak, ноябрь 2026.
+# Кроме МКС, все передают картинки эпизодически — расписания публикуют
+# в Libre Space Community и AMSAT-BB.
+SAT_PRESETS = [
+    ("МКС (ISS)", 25544, 437.550),
+    ("QMR-KWT-2 «Луна Кувейта» (RS95S)", 67291, 436.950),
+    ("UmKA-1 (RS40S)", 57172, 437.625),
+    ("VIZARD-meteo (RS38S)", 57189, 437.825),
+    ("UTMN-2 (RS27S)", 57203, 436.125),
+    ("Monitor-3 (RS58S)", 57180, 435.290),
+    ("Monitor-4 (RS57S)", 57182, 436.080),
+    ("SakhaCube-Cholbon (RS18S)", 67290, 437.350),
+    ("GALAPAGOS-UTE-SWSU (HC1PX)", 67279, 437.050),
+]
+
+
 def esc(s):
     return str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+# ---------------- флаги стран ----------------
+# Короткое имя приёмника начинается с кода страны: «DE Netphen». Вместо кода показываем
+# флаг (ui/flags, картинки из flag-icons, MIT).
+FLAGS_DIR = UI_DIR / "flags"
+_FLAG_PM: dict = {}
+
+
+_FLAG_CC = None
+
+
+def split_cc(short):
+    """«DE Netphen» → ("DE", "Netphen"); без известного кода → (None, short)."""
+    global _FLAG_CC
+    if _FLAG_CC is None:
+        _FLAG_CC = {f.stem for f in FLAGS_DIR.glob("*.png")}
+    s = str(short or "")
+    if len(s) > 3 and s[2] == " " and s[:2] in _FLAG_CC:
+        return s[:2], s[3:]
+    return None, s
+
+
+def flag_pm(cc, h=12):
+    """Флаг высотой h пикселей (с учётом HiDPI), кэшируется."""
+    key = (cc, h)
+    pm = _FLAG_PM.get(key)
+    if pm is None:
+        src = QtGui.QPixmap(str(FLAGS_DIR / f"{cc}.png"))
+        if src.isNull():
+            return None
+        dpr = QtWidgets.QApplication.instance().devicePixelRatio() if QtWidgets.QApplication.instance() else 1.0
+        pm = src.scaledToHeight(int(round(h * dpr)), Qt.SmoothTransformation)
+        pm.setDevicePixelRatio(dpr)
+        _FLAG_PM[key] = pm
+    return pm
+
+
+def flag_icon(cc):
+    return QtGui.QIcon(str(FLAGS_DIR / f"{cc}.png")) if cc else QtGui.QIcon()
+
+
+@functools.lru_cache(maxsize=4096)
+def rx_html(short, h=11):
+    """Имя приёмника для QLabel/подсказок: флаг + название."""
+    cc, name = split_cc(short)
+    if not cc:
+        return esc(name)
+    src = (FLAGS_DIR / f"{cc}.png").as_posix()
+    return f"<img src='{src}' width='{round(h * 4 / 3)}' height='{h}' align='middle'>&nbsp;{esc(name)}"
+
+
+def rx_plain(short):
+    """Без кода страны — где картинку не вставить."""
+    return split_cc(short)[1]
 
 
 def load_state():
@@ -219,6 +295,38 @@ class World:
             g.moveTo(0, merc_v(lat))
             g.lineTo(1, merc_v(lat))
         cls.grat = g
+
+
+def _unit(lat, lon):
+    f, l = math.radians(lat), math.radians(lon)
+    return math.cos(f) * math.cos(l), math.cos(f) * math.sin(l), math.sin(f)
+
+
+def densify(pts, scale, px=5.0, cap=96):
+    """Дуги большого круга между соседними точками, если на экране отрезок длиннее px.
+    У полярных орбит у полюса меркатор растягивает трассу в разы, и прямые отрезки
+    между точками через 30 с превращаются в заметную ломаную."""
+    out = []
+    prev = None
+    for lat, lon in pts:
+        if prev is not None:
+            u0, v0 = proj(prev[1], prev[0])
+            u1, v1 = proj(lon, lat)
+            du = (u1 - u0 + 0.5) % 1.0 - 0.5
+            n = min(cap, int(math.hypot(du, v1 - v0) * scale / px))
+            if n > 1:
+                a, b = _unit(*prev), _unit(lat, lon)
+                om = math.acos(max(-1.0, min(1.0, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])))
+                if om > 1e-9:
+                    so = math.sin(om)
+                    for i in range(1, n):
+                        t = i / n
+                        k0, k1 = math.sin((1 - t) * om) / so, math.sin(t * om) / so
+                        x, y, z = (k0 * a[j] + k1 * b[j] for j in range(3))
+                        out.append((math.degrees(math.atan2(z, math.hypot(x, y))), math.degrees(math.atan2(y, x))))
+        out.append((lat, lon))
+        prev = (lat, lon)
+    return out
 
 
 def small_circle(lat, lon, rho, n=120):
@@ -419,7 +527,7 @@ class MapWidget(QtWidgets.QWidget):
         линия не рвётся, а уходит в соседнюю копию мира (её дорисовывает соседний k)."""
         path = QtGui.QPainterPath()
         pu, off = None, 0.0
-        for lat, lon in pts:
+        for lat, lon in densify(pts, self.s):
             u, v = proj(lon, lat)
             if pu is not None:
                 if u + off - pu > 0.5:
@@ -506,7 +614,16 @@ class MapWidget(QtWidgets.QWidget):
     def showEvent(self, e):  # noqa: N802
         # окно могло поменять размер или масштаб экрана, пока карта была скрыта
         self._base = None
+        wh = self.window().windowHandle()
+        if wh is not None and not getattr(self, "_scr_hooked", False):
+            self._scr_hooked = True
+            wh.screenChanged.connect(self._screen_changed)
         super().showEvent(e)
+
+    def _screen_changed(self, *_):
+        # окно перетащили на другой монитор (другой размер/масштаб): подложку и масштаб — заново
+        self._base = None
+        QtCore.QTimer.singleShot(150, lambda: (self.clamp(), setattr(self, "_base", None), self.update()))
 
     def paintEvent(self, e):  # noqa: N802
         if not self.s:
@@ -591,14 +708,18 @@ class MapWidget(QtWidgets.QWidget):
             for q, x, y, r in reversed(drawn):
                 if not q.get("label") or not (self.s > W * 2.5 or q.get("always")):
                     continue
-                w = fm.horizontalAdvance(q["label"])
+                fp = flag_pm(q["cc"], 10) if q.get("cc") else None
+                fw = (fp.width() / fp.devicePixelRatio() + 3) if fp is not None else 0
+                w = fm.horizontalAdvance(q["label"]) + fw
                 bx, by = x + r + 3, y - 7
                 if not q.get("always") and any(bx < b[0] + b[2] and bx + w > b[0] and by < b[1] + 13 and by + 13 > b[1]
                                                for b in boxes):
                     continue
                 boxes.append((bx, by, w))
+                if fp is not None:
+                    p.drawPixmap(QtCore.QPointF(bx, y - 5), fp)
                 p.setPen(Q["live"] if q.get("always") else QtGui.QColor(200, 200, 200, 190))
-                p.drawText(QtCore.QPointF(bx, y + 4), q["label"])
+                p.drawText(QtCore.QPointF(bx + fw, y + 4), q["label"])
             if self.home_pt:
                 u, v = proj(self.home_pt[0], self.home_pt[1])
                 x, y = self.to_screen(u + k, v)
@@ -870,7 +991,7 @@ class RxCard(QtWidgets.QFrame):
         self.win.save_state()
 
     def update_from(self, a, hearing):
-        self.nm.setText(a["short"])
+        self.nm.setText(rx_html(a["short"], 12))
         self.full.setText(a["name"])
         self.full.setToolTip(a["url"])
         self.st.setText(a["state"])
@@ -1125,7 +1246,7 @@ class Viewer(QtWidgets.QDialog):
         self._fit()
         t = g["t"]
         self.cap.setText(
-            f"<b>{esc(g['short'])}</b> — {esc(g['name'])}<br>{wd(t)} {dm(t)} "
+            f"<b>{rx_html(g['short'])}</b> — {esc(g['name'])}<br>{wd(t)} {dm(t)} "
             f"{tm(t, True) if g['t_known'] else tm(t) + ' (время сеанса)'} · {esc(g['sat'])} (NORAD {g['norad']})"
             + (f" · качество {round(g['q'] * 100)}" if g.get("q") is not None else "")
             + (f" · строк {g['lines']}" if g.get("lines") else "")
@@ -1172,7 +1293,8 @@ RULES_HTML = """
 <p style='font-size:14px'><b>Правила:</b></p>
 <ul style='font-size:14px'>
 <li><b>8–12 приёмников одновременно</b> хватает, чтобы вести пролёт от края до края.
-Больше почти ничего не даёт, а мешает сразу многим людям и нагружает чужие каналы.</li>
+Больше почти ничего не даёт, а мешает сразу многим людям и нагружает чужие каналы,
+поэтому больше 12 программа не откроет.</li>
 <li>Подключайся только <b>на время пролёта</b> — программа так и делает сама.</li>
 <li>Если владелец приёмника просит не переключать диапазон или ограничивает время
 и число слушателей — <b>выключи его приёмник</b> во вкладке «Приёмники».</li>
@@ -1214,7 +1336,7 @@ class RulesDialog(QtWidgets.QDialog):
         h.setFont(hfont(18, True, 3))
         v.addWidget(h)
         t = QtWidgets.QTextBrowser()
-        t.setHtml(RULES_HTML)
+        t.setHtml(i18n.RULES_HTML_EN if i18n.LANG == "en" else RULES_HTML)
         t.setOpenExternalLinks(True)
         t.setStyleSheet(f"QTextBrowser{{background:{C['panel']};border:1px solid {C['line']};padding:8px;color:{C['text']}}}")
         v.addWidget(t, 1)
@@ -1252,8 +1374,9 @@ class RulesDialog(QtWidgets.QDialog):
 
 
 class Main(QtWidgets.QMainWindow):
-    def __init__(self, engine):
+    def __init__(self, engine, mixer=None):
         super().__init__()
+        self._rebuilding = False
         self.E = engine
         self.S = {}
         self.RX = {"ver": 0, "list": []}
@@ -1281,7 +1404,7 @@ class Main(QtWidgets.QMainWindow):
                 self.restoreGeometry(QtCore.QByteArray.fromBase64(st["geom"].encode()))
             except Exception:  # noqa: BLE001
                 pass
-        self.mixer = Mixer(engine)
+        self.mixer = mixer or Mixer(engine)
         self._build()
         self.tabs.setCurrentIndex(st.get("tab", 0))
         self.t_poll = QtCore.QTimer(self, timeout=self.poll, interval=700)
@@ -1297,7 +1420,7 @@ class Main(QtWidgets.QMainWindow):
         try:
             STATE_FILE.write_text(json.dumps(dict(
                 vol=self.vol, master=self.master, muted=self.muted, autoBest=self.auto_best, galKind=self.gal_kind, hideBad=self.hide_bad,
-                tab=self.tabs.currentIndex(), geom=bytes(self.saveGeometry().toBase64()).decode()),
+                tab=self.tabs.currentIndex(), lang=i18n.LANG, geom=bytes(self.saveGeometry().toBase64()).decode()),
                 ensure_ascii=False), encoding="utf-8")
         except Exception:  # noqa: BLE001
             pass
@@ -1331,7 +1454,8 @@ class Main(QtWidgets.QMainWindow):
             vb.addWidget(a1)
             vb.addWidget(a2)
             return box, a1, a2
-        brand, _, _ = two("SSTV · МКС", "пульт приёма", hfont(19, True, 5), hfont(10, True, 3))
+        import about
+        brand, _, _ = two("SSTV · МКС", f"v{about.__version__}", hfont(19, True, 5), hfont(10, True, 3))
         logo = QtWidgets.QLabel()
         lp = QtGui.QPixmap(str(UI_DIR / "icon_1024.png"))
         if not lp.isNull():
@@ -1396,6 +1520,22 @@ class Main(QtWidgets.QMainWindow):
         self.snd_hint.setStyleSheet(f"color:{C['warn']};font-size:12px")
         self.snd_hint.setVisible(False)
         h.addWidget(self.snd_hint)
+        lw = QtWidgets.QWidget()
+        lh = QtWidgets.QHBoxLayout(lw)
+        lh.setContentsMargins(0, 0, 0, 0)
+        lh.setSpacing(0)
+        for code in ("ru", "en"):
+            b = QtWidgets.QPushButton(code.upper())
+            b.setObjectName("lang")
+            b.setCheckable(True)
+            b.setChecked(i18n.LANG == code)
+            b.setFont(hfont(11, True, 1.5))
+            b.setFixedSize(38, 26)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip("Русский" if code == "ru" else "English")
+            b.clicked.connect(lambda _=False, c=code: self._set_lang(c))
+            lh.addWidget(b)
+        h.addWidget(lw)
         self._mute_icon()
         v.addWidget(top)
         self.tabs = QtWidgets.QTabWidget()
@@ -1773,7 +1913,7 @@ class Main(QtWidgets.QMainWindow):
         row = QtWidgets.QHBoxLayout()
         self.gal_btns = QtWidgets.QButtonGroup(self)
         for k, t in (("best", "лучшее"), ("all", "все"), ("live", "в эфире"), ("redecoded", "пересборка"),
-                     ("combined", "склейки"), ("stacked", "стопки")):
+                     ("combined", "склейки")):
             b = QtWidgets.QPushButton(t)
             b.setCheckable(True)
             b.setChecked(k == self.gal_kind)
@@ -1819,8 +1959,11 @@ class Main(QtWidgets.QMainWindow):
         self.sat_info.setStyleSheet(f"font-family:'{MONO}';font-size:12px;color:{C['muted']}")
         f.addRow(self.sat_info)
         self.s_preset = QtWidgets.QComboBox()
-        self.s_preset.addItem("МКС (ISS), NORAD 25544", "25544")
-        self.s_preset.addItem("другой…", "")
+        for nm, nr, fq in SAT_PRESETS:
+            self.s_preset.addItem(f"{nm} · {fq:.3f} МГц", (nr, fq))
+        self.s_preset.addItem("другой…", None)
+        self.s_preset.setToolTip("Спутники с SSTV в режиме Robot 36. Кроме МКС, все передают картинки эпизодически — "
+                                 "расписания смотри в Libre Space Community и AMSAT-BB.")
         self.s_preset.activated.connect(self._preset)
         self.s_norad = QtWidgets.QLineEdit()
         self.s_norad.setValidator(QtGui.QIntValidator(1, 999999))
@@ -1835,8 +1978,17 @@ class Main(QtWidgets.QMainWindow):
         hint.setStyleSheet(f"color:{C['muted']};font-size:11px")
         hint.setWordWrap(True)
         f.addRow(hint)
-        f.addRow(self._btn("Скачать TLE заново", lambda: (self.cmd(dict(cmd="refresh_tle")),
-                                                          self.set_msg.setText("Скачиваю TLE…"))))
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(self._btn("Применить спутник", self._apply_sat, primary=True,
+                                tip="Сохранить только спутник и частоту — без кнопки «Сохранить» внизу"))
+        row.addWidget(self._btn("Скачать TLE заново", self._refresh_tle))
+        row.addStretch(1)
+        f.addRow(row)
+        self.sat_status = QtWidgets.QLabel("")
+        self.sat_status.setStyleSheet(f"color:{C['muted']};font-size:12px")
+        self.sat_status.setWordWrap(True)
+        f.addRow(self.sat_status)
+        self._sat_wait = None      # (reload_seq до команды, NORAD, что делаем) — ждём конца перезагрузки
         gb = self._section(v, "Сигнал")
         f = QtWidgets.QFormLayout(gb)
         self.s_freq = QtWidgets.QDoubleSpinBox()
@@ -1863,8 +2015,9 @@ class Main(QtWidgets.QMainWindow):
                 s.setDecimals(dec)
             s.setSuffix(suf)
             return s
-        self.s_max = spin(1, 9999)
-        self.s_max.setToolTip("Каждый приёмник — отдельная скрытая страница браузера, примерно 100–150 МБ памяти")
+        self.s_max = spin(1, 12)
+        self.s_max.setToolTip("Не больше 12: картинок от большего числа не прибавляется, а чужим приёмникам — нагрузка. "
+                              "Каждый приёмник — отдельная скрытая страница браузера, примерно 100–150 МБ памяти")
         self.s_minel = spin(0, 60, 1, 1, "°")
         self.s_sep = spin(0, 2000, 5, 1, " км")
         self.s_lead = spin(0, 600, 10, 0, " с")
@@ -1877,12 +2030,9 @@ class Main(QtWidgets.QMainWindow):
         self.s_headless = QtWidgets.QCheckBox("скрывать окна приёмников")
         self.s_auto = QtWidgets.QCheckBox("принимать сеансы автоматически")
         self.s_hist = QtWidgets.QCheckBox("при выборе приёмников учитывать, давали ли они картинку раньше")
-        self.s_max_warn = QtWidgets.QLabel(
-            "Больше 12 почти ничего не добавляет к приёму, но мешает другим слушателям и нагружает чужие каналы.")
+        self.s_max_warn = QtWidgets.QLabel("не больше 12 — чтобы не мешать владельцам и слушателям чужих приёмников")
         self.s_max_warn.setWordWrap(True)
-        self.s_max_warn.setStyleSheet(f"color:{C['warn']};font-size:12px")
-        self.s_max_warn.setVisible(False)
-        self.s_max.valueChanged.connect(lambda n: self.s_max_warn.setVisible(n > 12))
+        self.s_max_warn.setStyleSheet(f"color:{C['muted']};font-size:12px")
         f.addRow("Приёмников одновременно", self.s_max)
         f.addRow("", self.s_max_warn)
         f.addRow("Мин. угол спутника", self.s_minel)
@@ -1948,7 +2098,7 @@ class Main(QtWidgets.QMainWindow):
             lines.append(f"Ошибки и пожелания: <a href='{esc(about.issues_url())}' style='color:{C['live']}'>"
                          f"написать на GitHub</a>")
         lines.append(f"<span style='color:{C['muted']};font-size:11px'>Карта: Natural Earth. Шрифты: PT Sans Narrow, "
-                     f"JetBrains Mono (SIL OFL). Орбиты: CelesTrak.</span>")
+                     f"JetBrains Mono (SIL OFL). Орбиты: CelesTrak. Флаги: flag-icons (MIT).</span>")
         ab = QtWidgets.QLabel("<br>".join(lines))
         ab.setTextFormat(Qt.RichText)
         ab.setOpenExternalLinks(True)
@@ -2043,6 +2193,8 @@ class Main(QtWidgets.QMainWindow):
             return
         if not self.S:
             return
+        if self._sat_wait:
+            self.render_sat_status()
         self.render_head()
         if self.S["rx_ver"] != self.RX["ver"]:
             self.RX = self.E.receivers_json()
@@ -2170,10 +2322,10 @@ class Main(QtWidgets.QMainWindow):
         self.hud["img"][0].setText(str(s["images"]) if s.get("session") else "—")
         self.hud["img"][1].setText(f"всего в галерее: {len(self.gal['list'])}" if self.gal["list"] else "")
         if s.get("session"):
-            lh = "Сейчас слушаю: " + ", ".join(esc(a["short"]) for a in s["active"])
+            lh = "Сейчас слушаю: " + ", ".join(rx_html(a["short"]) for a in s["active"])
         elif s.get("next"):
             nx = s["next"]
-            lh = "Лучшие в ближайшем сеансе: " + ", ".join(f"{esc(b[0])} {round(b[1])}°" for b in nx["best"])
+            lh = "Лучшие в ближайшем сеансе: " + ", ".join(f"{rx_html(b[0])} {round(b[1])}°" for b in nx["best"])
         else:
             lh = ""
         self.live_head.setText(lh)
@@ -2233,7 +2385,7 @@ class Main(QtWidgets.QMainWindow):
         parts = []
         for r, e in lst[:80]:
             col = C["live"] if r["url"] in act else (C["text"] if e >= self.S["min_el"] else C["muted"])
-            parts.append(f"<span style='color:{col}'>{esc(r['short'])}&nbsp;<b>{e:.0f}°</b></span>")
+            parts.append(f"<span style='color:{col}'>{rx_html(r['short'])}&nbsp;<b>{e:.0f}°</b></span>")
         self.vis_list.setText(" &nbsp;·&nbsp; ".join(parts))
 
     # ---------- карта ----------
@@ -2264,8 +2416,9 @@ class Main(QtWidgets.QMainWindow):
                 lon=r["lon"], lat=r["lat"], color=self.rx_color(r, e, a), data=r,
                 z=3 if a else (2 if (e or -1) > 0 else 0 if r["disabled"] else 1), selected=r["url"] == sel_url,
                 ring=(a["strength"] / 100) if a else 0, ringColor=qcolor_for(a["strength"]) if a else None,
-                label=r["short"] if labels else None, always=bool(a) and labels,
-                tip=f"{r['short']} — {r['name']}" + (f" · {e:.0f}°" if e is not None else "")
+                label=rx_plain(r["short"]) if labels else None, cc=split_cc(r["short"])[0],
+                always=bool(a) and labels,
+                tip=f"{rx_html(r['short'])} — {esc(r['name'])}" + (f" · {e:.0f}°" if e is not None else "")
                     + (f" · SSTV {a['strength']:.0f}%" if a else "") + (" · не прошёл проверку" if r.get("bad") else "")
                     + (" · выключен" if r["disabled"] else "")
                     + (f" · картинка в {r['hist']['success']} из {r['hist']['listened']} сеансов" if r.get("hist") else "")))
@@ -2325,7 +2478,7 @@ class Main(QtWidgets.QMainWindow):
         self.map_polar.now = self.S.get("now", time.time())
         self.map_polar.update()
         h = r.get("hist")
-        html = (f"<b style='font-size:14px'>{esc(r['short'])}</b><br><span style='color:{C['muted']}'>{esc(r['name'])}</span><br>"
+        html = (f"<b style='font-size:14px'>{rx_html(r['short'], 13)}</b><br><span style='color:{C['muted']}'>{esc(r['name'])}</span><br>"
                 f"<a href='{esc(r['url'])}' style='color:#ffffff'>{esc(r['url'])}</a><br>"
                 f"{'OpenWebRX' if r['kind'] == 'owrx' else 'WebSDR'} · {r['lat']:.4f}, {r['lon']:.4f}"
                 + (f" · спутник {e:.0f}°" if e is not None else "")
@@ -2431,14 +2584,26 @@ class Main(QtWidgets.QMainWindow):
         self.timeline.update()
         rows = [x for x in lst if not (x["done"] and x["b"] < now - 6 * 3600)]
         t = self.sched_tbl
+
+        def status(x):
+            return ("идёт" if x["running"] else "прошёл" if x["done"] else "пропущу" if x["skip"]
+                    else f"через {dur(x['a'] - now)}")
+        sig = [(x["id"], x["a"], x["b"], x["running"], x["done"], x["skip"], x["n_rx"], str(x["best"])) for x in rows]
+        if sig == getattr(self, "_sched_sig", None) and t.rowCount() == len(rows):
+            # те же сеансы: меняется только «через …» — не пересобираем таблицу (сотни виджетов)
+            for i, x in enumerate(rows):
+                it = t.item(i, 5)
+                if it is not None:
+                    it.setText(status(x))
+            return
+        self._sched_sig = sig
         t.setRowCount(len(rows))
         last = ""
         for i, x in enumerate(rows):
             day = f"{wd(x['a'])} {dm(x['a'])}"
-            st = ("идёт" if x["running"] else "прошёл" if x["done"] else "пропущу" if x["skip"]
-                  else f"через {dur(x['a'] - now)}")
+            st = status(x)
             vals = [day if day != last else "", f"{tm(x['a'])}–{tm(x['b'])}", dur(x["b"] - x["a"]), str(x["n_rx"]),
-                    ", ".join(f"{b[0]} {round(b[1])}°" for b in x["best"]), st]
+                    ", ".join(f"{rx_plain(b[0])} {round(b[1])}°" for b in x["best"]), st]
             last = day
             col = (Q["live"] if x["running"] else Q["muted"] if (x["done"] or x["skip"]) else Q["text"])
             for j, val in enumerate(vals):
@@ -2451,6 +2616,13 @@ class Main(QtWidgets.QMainWindow):
                     f.setStrikeOut(True)
                     it.setFont(f)
                 t.setItem(i, j, it)
+            # «Лучшие» — с флагами: текстом в ячейке картинку не вставить, поэтому QLabel поверх
+            lb = QtWidgets.QLabel(", ".join(f"{rx_html(b_[0])} {round(b_[1])}°" for b_ in x["best"]))
+            lb.setStyleSheet(f"color:{col.name()};padding:0 6px;background:transparent"
+                             + (";text-decoration:line-through" if x["skip"] else ""))
+            lb.setAttribute(Qt.WA_TransparentForMouseEvents)
+            t.item(i, 4).setText("")
+            t.setCellWidget(i, 4, lb)
             if not x["done"]:
                 b = QtWidgets.QPushButton("Вернуть" if x["skip"] else "Пропустить")
                 b.setFont(hfont(10, True, 1.4))
@@ -2505,7 +2677,12 @@ class Main(QtWidgets.QMainWindow):
 
     def _test_sel(self):
         if self._need_sel():
-            self.cmd(dict(cmd="test", urls=self._sel(), seconds=60))
+            sel = self._sel()
+            if len(sel) > 12:
+                QtWidgets.QMessageBox.information(
+                    self, "Тест", f"Выбрано {len(sel)}, но одновременно программа слушает не больше 12 приёмников. "
+                    "Откроются 12 из выбранных, над которыми спутник сейчас выше.")
+            self.cmd(dict(cmd="test", urls=sel, seconds=60))
             self.tabs.setCurrentIndex(0)
 
     def _scan(self):
@@ -2551,7 +2728,10 @@ class Main(QtWidgets.QMainWindow):
             c0.setData(Qt.UserRole, r["url"])
             c1 = QtWidgets.QTableWidgetItem()
             tags = (" · вручную" if r["user"] else " · изменён" if r["edited"] else "") + (" · встроенный" if r["builtin"] else "")
-            c2 = QtWidgets.QTableWidgetItem(f"{r['short']}{tags}\n{r['name']}")
+            cc_, nm_ = split_cc(r["short"])
+            c2 = QtWidgets.QTableWidgetItem(f"{nm_}{tags}\n{r['name']}")
+            if cc_:
+                c2.setIcon(flag_icon(cc_))
             c2.setToolTip(r["url"])
             c3 = QtWidgets.QTableWidgetItem("OWRX" if r["kind"] == "owrx" else "WebSDR")
             c4 = QtWidgets.QTableWidgetItem(f"{r['lat']:.3f}, {r['lon']:.3f}")
@@ -2633,7 +2813,7 @@ class Main(QtWidgets.QMainWindow):
         self.f_lon.setText(f"{r['lon']}" if r else "")
         self.f_name.setText(r["name"] if r else "")
         self.f_short.setText(r["short"] if r else "")
-        self.form_title.setText(f"<b>Приёмник: {esc(r['short'])}</b>" if r else "<b>Добавить приёмник</b>")
+        self.form_title.setText(f"<b>Приёмник: {rx_html(r['short'])}</b>" if r else "<b>Добавить приёмник</b>")
         self.b_rxdel.setVisible(bool(r and (r["user"] or r["edited"])))
         self.b_rxdel.setText("Удалить приёмник" if r and r["user"] else "Вернуть исходные данные")
         self.form_msg.setText("")
@@ -2697,7 +2877,7 @@ class Main(QtWidgets.QMainWindow):
 
     def _redecode(self):
         if QtWidgets.QMessageBox.question(
-                self, "Пересборка", "Пересобрать все записи нынешним декодером и сложить стопки повторов? "
+                self, "Пересборка", "Пересобрать все записи нынешним декодером? "
                 "Это займёт несколько минут; старые картинки не удаляются.") == QtWidgets.QMessageBox.Yes:
             self.cmd(dict(cmd="redecode"))
 
@@ -2716,7 +2896,7 @@ class Main(QtWidgets.QMainWindow):
         self._table_style(t)
         t.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
         for i, x in enumerate(rep["rx"]):
-            vals = [f"{x['short']}  {x['name'][:40]}", f"{x['max_el']:.0f}°", dur(x["secs"]), f"{x['max_strength']}%",
+            vals = [f"{rx_plain(x['short'])}  {x['name'][:40]}", f"{x['max_el']:.0f}°", dur(x["secs"]), f"{x['max_strength']}%",
                     str(x["images"]), str(x["max_lines"] or "")]
             for j, val in enumerate(vals):
                 it = QtWidgets.QTableWidgetItem(val)
@@ -2747,12 +2927,20 @@ class Main(QtWidgets.QMainWindow):
         self.gal["ver"] = self.S.get("gallery_ver")
         run_bg(self.E.gallery, done)
 
-    def thumb(self, path):
-        pm = self.thumbs.get(path)
+    def thumb(self, path, cc=None):
+        pm = self.thumbs.get((path, cc))
         if pm is None:
             pm = QtGui.QPixmap(str(self.E.out / path))
             pm = pm.scaled(176, 132, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation) if not pm.isNull() else pm
-            self.thumbs[path] = pm
+            fp = flag_pm(cc, 14) if cc and not pm.isNull() else None
+            if fp is not None:
+                pm = QtGui.QPixmap(pm)
+                p = QtGui.QPainter(pm)
+                fw, fh = fp.width() / fp.devicePixelRatio(), fp.height() / fp.devicePixelRatio()
+                p.fillRect(QtCore.QRectF(3, 3, fw + 2, fh + 2), QtGui.QColor(0, 0, 0, 160))
+                p.drawPixmap(QtCore.QPointF(4, 4), fp)
+                p.end()
+            self.thumbs[(path, cc)] = pm
         return pm
 
     def render_gallery(self):
@@ -2760,7 +2948,7 @@ class Main(QtWidgets.QMainWindow):
         k = self.gal_kind
         if k == "best":
             red = {g["session"] for g in L if g["kind"] == "redecoded"}
-            L = [g for g in L if g["kind"] in ("combined", "stacked")
+            L = [g for g in L if g["kind"] == "combined"
                  or (g["kind"] == "redecoded" if g["session"] in red else g["kind"] == "live")]
         elif k != "all":
             L = [g for g in L if g["kind"] == k]
@@ -2793,8 +2981,7 @@ class Main(QtWidgets.QMainWindow):
                         t = datetime.strptime(g["session"][:13], "%Y%m%d_%H%M").timestamp()
                         txt = f"Сеанс <b>{wd(t)} {dm(t)} {tm(t)}</b> · {esc(g['sat'])} · снимков {n}"
                     except ValueError:
-                        txt = (f"<b>Стопки</b> · одна и та же картинка, сложенная из многих пролётов · {n}"
-                               if g["session"] == "stack" else esc(g["session"]))
+                        txt = esc(g["session"])
                     rep_ = self.reports.get(g["session"])
                     hrow = QtWidgets.QHBoxLayout()
                     hrow.setContentsMargins(0, 12, 0, 2)
@@ -2817,12 +3004,12 @@ class Main(QtWidgets.QMainWindow):
                 v.addWidget(box)
             b = QtWidgets.QToolButton()
             b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            b.setIcon(QtGui.QIcon(self.thumb(g["path"])))
+            b.setIcon(QtGui.QIcon(self.thumb(g["path"], split_cc(g["short"])[0])))
             b.setIconSize(QtCore.QSize(176, 132))
-            kind = {"combined": "склейка", "redecoded": "пересборка", "stacked": "стопка"}.get(g["kind"], "в эфире")
+            kind = {"combined": "склейка", "redecoded": "пересборка"}.get(g["kind"], "в эфире")
             tt = tm(g["t"], True) if g["t_known"] else f"{dm(g['t'])} {tm(g['t'])}"
             qq = f" · кач. {round(g['q'] * 100)}" if g.get("q") is not None else ""
-            b.setText(f"{g['short'][:22]}\n{tt}{qq}\n{kind}" + (f" · {g['el']:.0f}°" if g.get("el") is not None else ""))
+            b.setText(f"{rx_plain(g['short'])[:22]}\n{tt}{qq}\n{kind}" + (f" · {g['el']:.0f}°" if g.get("el") is not None else ""))
             b.setToolTip(f"{g['name']}\n{g['path']}")
             b.setObjectName("gitem_c" if g["combined"] else "gitem")
             b.setFixedWidth(190)
@@ -2836,9 +3023,11 @@ class Main(QtWidgets.QMainWindow):
         s = self.E.settings
         self.s_norad.setText(str(s["norad"]))
         self.s_tle.setPlainText(s.get("tle_text") or "")
-        self.s_preset.setCurrentIndex(0 if str(s["norad"]) == "25544" and not s.get("tle_text") else 1)
+        idx = next((i for i, (_, nr, _f) in enumerate(SAT_PRESETS)
+                    if str(s["norad"]) == str(nr) and not s.get("tle_text")), len(SAT_PRESETS))
+        self.s_preset.setCurrentIndex(idx)
         self.s_freq.setValue(float(s["freq_mhz"]))
-        self.s_max.setValue(int(s["max_rx"]))
+        self.s_max.setValue(max(1, min(12, int(s["max_rx"]))))
         self.s_minel.setValue(float(s["min_el"]))
         self.s_sep.setValue(float(s["min_sep_km"]))
         self.s_lead.setValue(int(s["lead"]))
@@ -2872,8 +3061,72 @@ class Main(QtWidgets.QMainWindow):
     def _preset(self, i):
         d = self.s_preset.itemData(i)
         if d:
-            self.s_norad.setText(d)
+            self.s_norad.setText(str(d[0]))
             self.s_tle.setPlainText("")
+            self.s_freq.setValue(float(d[1]))
+
+    def _sat_fields(self):
+        """Спутник из полей вкладки: (norad, tle) или текст ошибки."""
+        tle = self.s_tle.toPlainText().strip()
+        norad = self.s_norad.text().strip()
+        if tle:
+            import tle as tlemod
+            try:
+                nm, l1, l2 = tlemod.parse_tle(tle)
+                norad = str(int(l1[2:7]))
+            except Exception as e:  # noqa: BLE001
+                return f"TLE не распознан: {e}"
+        if not norad.isdigit():
+            return "NORAD ID — целое число."
+        return int(norad), tle
+
+    def _sat_say(self, text, col="muted"):
+        self.sat_status.setText(text)
+        self.sat_status.setStyleSheet(f"color:{C[col]};font-size:12px")
+
+    def _apply_sat(self):
+        r = self._sat_fields()
+        if isinstance(r, str):
+            return self._sat_say(r, "bad")
+        norad, tle = r
+        s = self.E.settings
+        if (norad == int(s["norad"]) and tle == (s.get("tle_text") or "")
+                and abs(self.s_freq.value() - float(s["freq_mhz"])) < 1e-6):
+            return self._sat_say("Без изменений: этот спутник уже выбран.", "text")
+        self._sat_wait = (self.S.get("reload_seq", 0), norad, "apply")
+        self.cmd(dict(cmd="settings", data=dict(norad=norad, tle_text=tle, freq_mhz=self.s_freq.value())))
+        self._sat_say("Сохраняю…", "live")
+        self.render_sat_status()
+
+    def _refresh_tle(self):
+        self._sat_wait = (self.S.get("reload_seq", 0), int(self.E.settings["norad"]), "tle")
+        self.cmd(dict(cmd="refresh_tle"))
+        self._sat_say("Скачиваю TLE…", "live")
+
+    def render_sat_status(self):
+        """Строка состояния под спутником: что сейчас делается и чем кончилось."""
+        w = self._sat_wait
+        if not w:
+            return
+        seq0, norad, what = w
+        S = self.S
+        if S.get("reload_seq", 0) <= seq0:
+            if S.get("mode") in ("сеанс", "тест"):
+                self._sat_say("Сохранено. Спутник сменится после сеанса.", "warn")
+            elif S.get("phase") == "скачиваю TLE":
+                self._sat_say("Скачиваю TLE…", "live")
+            elif S.get("phase") == "считаю расписание":
+                self._sat_say("Считаю расписание…", "live")
+            return
+        self._sat_wait = None
+        sat = S.get("sat")
+        if not sat or int(sat["norad"]) != norad:
+            err = S.get("error") or "TLE не найден"
+            self._sat_say(f"Не получилось: {err}", "bad")
+            return
+        self._sat_say(f"Готово: {sat['name']} (NORAD {sat['norad']}), TLE {sat['src']}, "
+                      f"сеансов {S.get('n_sessions', 0)}.", "green")
+        self.render_sat_info()
 
     def _save_settings(self):
         tle = self.s_tle.toPlainText().strip()
@@ -2897,6 +3150,10 @@ class Main(QtWidgets.QMainWindow):
         except Exception:  # noqa: BLE001
             return self._msg(self.set_msg, "Моё место: широта −90…90, долгота −180…180.", False)
         dt = self.s_until.dateTime().toPyDateTime()
+        st = self.E.settings
+        if int(norad) != int(st["norad"]) or tle != (st.get("tle_text") or ""):
+            self._sat_wait = (self.S.get("reload_seq", 0), int(norad), "apply")
+            self._sat_say("Сохраняю…", "live")
         self.cmd(dict(cmd="settings", data=dict(
             norad=int(norad), tle_text=tle, freq_mhz=self.s_freq.value(), mode=self.s_mode.currentText(),
             max_rx=self.s_max.value(), min_el=self.s_minel.value(), min_sep_km=self.s_sep.value(),
@@ -2909,8 +3166,36 @@ class Main(QtWidgets.QMainWindow):
         busy = self.S.get("mode") in ("сеанс", "тест")
         self._msg(self.set_msg, "Сохранено" + (". Спутник и расписание сменятся после сеанса." if busy else "."), True)
 
+    # ---------- язык ----------
+    def _set_lang(self, code):
+        """RU/EN: окно строится заново на новом языке, приём при этом не прерывается."""
+        if code == i18n.LANG:
+            for b in self.findChildren(QtWidgets.QPushButton, "lang"):
+                b.setChecked(b.text().lower() == code)
+            return
+        i18n.set_lang(code)
+        self.save_state()
+        w = Main(self.E, self.mixer)
+        w.setWindowIcon(self.windowIcon())
+        if self.isMaximized():
+            w.showMaximized()
+        elif self.isFullScreen():
+            w.showFullScreen()
+        else:
+            w.setGeometry(self.geometry())
+            w.show()
+        QtWidgets.QApplication.instance()._main = w
+        self._rebuilding = True
+        self.t_poll.stop()
+        self.t_snd.stop()
+        self.close()
+        self.deleteLater()
+
     # ---------- выход ----------
     def closeEvent(self, e):  # noqa: N802
+        if self._rebuilding:
+            e.accept()
+            return
         self.save_state()
         if self.S.get("mode") in ("сеанс", "тест", "проверка") and QtWidgets.QMessageBox.question(
                 self, "Выход", "Идёт приём. Остановить его и выйти? Записанное сохранится и склеится.") != QtWidgets.QMessageBox.Yes:
@@ -2949,6 +3234,10 @@ QPushButton:hover, QToolButton:hover {{ border-color:rgba(255,255,255,110); }}
 QPushButton:pressed {{ padding-top:8px; padding-bottom:6px; }}
 QPushButton:checked, QToolButton:checked {{ background:{C['text']}; color:#000; border-color:#fff; }}
 QPushButton:disabled {{ color:#3a3a3a; border-color:#141414; }}
+QFrame#top QPushButton#lang {{ padding:0; border-radius:0; background:transparent; color:{C['muted']}; border:1px solid {C['line']}; }}
+QFrame#top QPushButton#lang:hover {{ color:{C['text']}; border-color:rgba(255,255,255,110); }}
+QFrame#top QPushButton#lang:pressed {{ padding:0; }}
+QFrame#top QPushButton#lang:checked {{ background:{C['text']}; color:#000; border-color:#fff; }}
 QPushButton[primary="true"] {{ background:{C['text']}; color:#000; border-color:#fff; }}
 QPushButton[primary="true"]:hover {{ background:#fff; }}
 QPushButton[danger="true"] {{ border-color:{C['bad']}; color:{C['bad']}; }}
@@ -3050,6 +3339,11 @@ def main():
     f.setPixelSize(13)
     app.setFont(f)
     app.setStyleSheet(STYLE)
+    lang = load_state().get("lang")
+    if lang not in ("ru", "en"):
+        lang = "ru" if QtCore.QLocale.system().language() in (QtCore.QLocale.Russian, QtCore.QLocale.Ukrainian,
+                                                              QtCore.QLocale.Belarusian, QtCore.QLocale.Kazakh) else "en"
+    i18n.set_lang(lang)
     if not rules_accepted() and RulesDialog(first=True).exec_() != QtWidgets.QDialog.Accepted:
         sys.exit(0)
     from engine import Engine
@@ -3058,6 +3352,7 @@ def main():
     w = Main(eng)
     w.setWindowIcon(icon)
     w.show()
+    app._main = w
     sys.exit(app.exec_())
 
 

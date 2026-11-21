@@ -604,19 +604,22 @@ class Visibility:
     STEP = 20.0
 
     def __init__(self, orbit: Orbit, rxs: list[Rx], start: datetime, end: datetime):
-        from skyfield.framelib import itrs
+        from skyfield.sgp4lib import TEME_to_ITRF
         n = max(2, int((end - start).total_seconds() / self.STEP) + 1)
         self.t0 = start
         self.times = [start + timedelta(seconds=i * self.STEP) for i in range(n)]
         ts = orbit.ts.from_datetimes(self.times)
-        sat = orbit.sat.at(ts).frame_xyz(itrs).km.T              # (n, 3)
-        lat = np.radians([r.cfg["lat"] for r in rxs])
-        lon = np.radians([r.cfg["lon"] for r in rxs])
+        # TEME → земная система прямо из SGP4, без расчёта нутации: для углов места разницы нет
+        # (меньше миллиметра), а считается в десятки раз быстрее и не подвешивает окно
+        r, v, _ = orbit.sat._position_and_velocity_TEME_km(ts)
+        sat = TEME_to_ITRF(ts.whole, r, v, 0.0, 0.0, ts.ut1_fraction)[0].T     # (n, 3), км
+        lat = np.radians([r_.cfg["lat"] for r_ in rxs])
+        lon = np.radians([r_.cfg["lon"] for r_ in rxs])
         R = 6371.0
-        st = np.stack([R * np.cos(lat) * np.cos(lon), R * np.cos(lat) * np.sin(lon), R * np.sin(lat)], 1)
-        up = st / R
-        rho = sat[:, None, :] - st[None, :, :]                   # (n, m, 3)
-        self.el = np.degrees(np.arcsin((rho * up[None]).sum(-1) / np.linalg.norm(rho, axis=-1)))
+        up = np.stack([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)], 1)    # (m, 3)
+        d = sat @ up.T                                            # (n, m): проекция спутника на вертикаль
+        rho = np.sqrt(np.maximum((sat * sat).sum(1)[:, None] - 2 * R * d + R * R, 1e-9))
+        self.el = np.degrees(np.arcsin(np.clip((d - R) / rho, -1, 1)))
         self.rxs = rxs
 
     def idx(self, dt: datetime) -> int:
@@ -888,6 +891,7 @@ def main():
     ap.add_argument("--no-switch", action="store_true",
                     help="никогда не переключать диапазон на OpenWebRX (только если он уже на 70 см)")
     args = ap.parse_args()
+    args.max_rx = max(1, min(12, args.max_rx))   # больше 12 одновременно не открываем
 
     global LOGFILE, CHECK_PATH
     Path(args.out).mkdir(parents=True, exist_ok=True)

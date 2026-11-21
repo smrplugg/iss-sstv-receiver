@@ -9,7 +9,7 @@ from PyInstaller.utils.hooks import collect_data_files
 datas = [
     ("ui/world.json", "ui"), ("ui/countries.json", "ui"), ("ui/check.svg", "ui"),
     ("ui/icon.ico", "ui"), ("ui/icon.png", "ui"), ("ui/icon_1024.png", "ui"),
-    ("ui/fonts", "ui/fonts"),
+    ("ui/fonts", "ui/fonts"), ("ui/flags", "ui/flags"),
     ("receivers.json", "."),
 ]
 datas += collect_data_files("skyfield")
@@ -18,7 +18,7 @@ a = Analysis(
     ["sstv.pyw"],
     pathex=["."],
     datas=datas,
-    hiddenimports=["qt_app", "engine", "iss_sstv", "robot36", "combine", "redecode", "stack", "scan", "tle", "about", "paths",
+    hiddenimports=["qt_app", "engine", "iss_sstv", "robot36", "combine", "redecode", "scan", "tle", "about", "paths", "i18n",
                    "PyQt5.QtMultimedia", "PyQt5.QtSvg", "scipy.signal", "scipy.ndimage"],
     excludes=["tkinter", "pkg_resources", "setuptools", "matplotlib", "IPython", "pytest", "PyQt5.QtWebEngineWidgets", "PyQt5.QtWebEngineCore"],
     noarchive=False,

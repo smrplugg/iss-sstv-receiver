@@ -26,6 +26,10 @@ import scan
 
 from paths import DATA as HERE  # noqa: E402
 
+# Больше 12 приёмников одновременно программа не открывает: картинок от этого не больше,
+# а чужим приёмникам и их слушателям — заметная нагрузка.
+MAX_RX = 12
+
 DEFAULTS = dict(
     norad=25544, tle_text="", freq_mhz=437.550, mode="Robot 36",
     max_rx=8, min_el=10.0, min_sep_km=40.0, lead=60, tail=20, yield_s=20,
@@ -77,6 +81,10 @@ class Engine(threading.Thread):
             self.settings.update(json.loads(self.p_settings.read_text(encoding="utf-8")))
         except Exception:  # noqa: BLE001
             pass
+        try:
+            self.settings["max_rx"] = max(1, min(MAX_RX, int(self.settings["max_rx"])))
+        except Exception:  # noqa: BLE001
+            self.settings["max_rx"] = DEFAULTS["max_rx"]
         self.args = argparse.Namespace(test=False)
         self._apply_args()
 
@@ -99,6 +107,8 @@ class Engine(threading.Thread):
         self.stop_session = False
         self.quit = False
         self.need_reload = False
+        self.phase = ""           # что сейчас делает перезагрузка: скачиваю TLE / считаю расписание
+        self.reload_seq = 0       # растёт после каждой перезагрузки — окно по нему видит, что она кончилась
         self.need_replan = False
         self.job = None
         self.rx_ver = 1
@@ -136,7 +146,7 @@ class Engine(threading.Thread):
     def _apply_args(self):
         s = self.settings
         a = self.args
-        a.max_rx = int(s["max_rx"])
+        a.max_rx = max(1, min(MAX_RX, int(s["max_rx"])))
         a.min_sep_km = float(s["min_sep_km"])
         a.min_el = float(s["min_el"])
         a.lead = int(s["lead"])
@@ -261,14 +271,28 @@ class Engine(threading.Thread):
 
     def reload_all(self, force_tle=False):
         self.mode = "расчёт"
-        self._apply_args()
-        self.load_orbit(force_tle)
-        self.load_receivers()
-        self.compute_history()
-        self.build_rxs()
-        self.plan()
-        self.need_reload = self.need_replan = False
-        self.mode = "ожидание"
+        try:
+            self._apply_args()
+            self._set_phase("скачиваю TLE")
+            self.load_orbit(force_tle)
+            self._set_phase("считаю расписание")
+            self.load_receivers()
+            self.compute_history()
+            self.build_rxs()
+            self.plan()
+        finally:
+            self.need_reload = self.need_replan = False
+            self.phase = ""
+            self.reload_seq += 1
+            self.mode = "ожидание"
+            self._set_phase("")
+
+    def _set_phase(self, text):
+        self.phase = text
+        try:
+            self._snap()
+        except Exception:  # noqa: BLE001
+            pass
 
     def next_session(self):
         now = _now()
@@ -370,25 +394,6 @@ class Engine(threading.Thread):
                                        short="склейка", sat=self.orbit.name, norad=self.orbit.norad,
                                        kind="combined")
         self._save_index()
-        if not test and records:
-            self.restack()
-
-    def restack(self):
-        """Пересобрать стопки повторов в фоне — сеансу и интерфейсу это не мешает."""
-        if getattr(self, "_stacking", False):
-            return
-        self._stacking = True
-
-        def work():
-            try:
-                import stack
-                stack.stack_tree(self.out, log=self.log)
-                self.gallery_ver += 1
-            except Exception as e:  # noqa: BLE001
-                self.log(f"Стопки не собраны: {e}")
-            finally:
-                self._stacking = False
-        threading.Thread(target=work, daemon=True).start()
 
     def tick(self, rxs=None):
         self._process_cmds()
@@ -617,6 +622,8 @@ class Engine(threading.Thread):
             for kk in ("max_rx", "lead", "tail", "norad"):
                 if kk in new:
                     new[kk] = int(float(new[kk]))
+            if "max_rx" in new:
+                new["max_rx"] = max(1, min(MAX_RX, new["max_rx"]))
             for kk in ("min_el", "min_sep_km", "yield_s", "freq_mhz", "retune_khz", "home_alt"):
                 if kk in new:
                     new[kk] = float(new[kk])
@@ -711,7 +718,7 @@ class Engine(threading.Thread):
                 rxs = [r for r in self.rxs if not urls or r.cfg["url"] in urls]
                 self.mode = "проверка"
                 self.cur = None
-                self.args.max_rx = int(self.settings["max_rx"])
+                self.args.max_rx = max(1, min(MAX_RX, int(self.settings["max_rx"])))
                 iss.run_check(rxs, self.args, self.out, self.p_check, ctl=self)
                 self.args.test = False
                 self.need_reload = True
@@ -724,7 +731,6 @@ class Engine(threading.Thread):
                 import redecode
                 redecode.redecode_tree(self.out, log=self.log, skip=("test", "check", "best"))
                 self.gallery_ver += 1
-                self.restack()
             elif k == "test":
                 urls = set(c.get("urls") or [])
                 secs = int(c.get("seconds") or 60)
@@ -746,7 +752,7 @@ class Engine(threading.Thread):
                 sess = dict(a=now, b=now + timedelta(seconds=secs), id=None)
                 old = self.args.max_rx
                 if urls:
-                    self.args.max_rx = len(idx)
+                    self.args.max_rx = max(1, min(MAX_RX, len(idx)))
                 self.log(f"Тест: {min(len(idx), self.args.max_rx)} приёмников на {secs} с, без доплера.")
                 try:
                     iss.run_session(sess, v, self.args, self.out, test=True, ctl=self)
@@ -869,6 +875,7 @@ class Engine(threading.Thread):
             active=active, el=el, rx_ver=self.rx_ver, log_seq=self.log_seq, gallery_ver=self.gallery_ver,
             images=sum(a["imgs"] for a in active), min_el=self.args.min_el, max_rx=self.args.max_rx,
             n_sessions=len(self.sessions), pending_reload=bool(self.need_reload),
+            phase=self.phase, reload_seq=self.reload_seq,
             home=(dict(lat=self.settings["home_lat"], lon=self.settings["home_lon"],
                        name=self.settings.get("home_name") or "Я", show=bool(self.settings.get("home_show", True)))
                   if self.settings.get("home_lat") is not None and self.settings.get("home_lon") is not None else None),
@@ -988,19 +995,4 @@ class Engine(threading.Thread):
                                 rx=rx, short=short, name=name, sat=m.get("sat") or "ISS (ZARYA)",
                                 norad=m.get("norad") or 25544, q=m.get("q"), lines=m.get("lines"),
                                 el=m.get("el"), kind=kind, combined=rx == "combined"))
-        sd = self.out / "stack"
-        if sd.is_dir():
-            import stack
-            for p in sorted(sd.glob("stack_*.png")):
-                try:
-                    meta = json.loads(p.with_suffix(".json").read_text(encoding="utf-8"))
-                except Exception:  # noqa: BLE001
-                    meta = {}
-                n, ns = meta.get("count") or 0, meta.get("sessions") or 0
-                res.append(dict(path=self._rel(p), session="stack", t=p.stat().st_mtime, t_known=True,
-                                rx="stack", short=f"стопка ×{n}",
-                                name=f"стопка: {n} {stack.plural(n, 'приём', 'приёма', 'приёмов')} из {ns} "
-                                     f"{stack.plural(ns, 'пролёта', 'пролётов', 'пролётов')}",
-                                sat="ISS (ZARYA)", norad=25544,
-                                q=None, lines=meta.get("lines"), el=None, kind="stacked", combined=True))
         return res

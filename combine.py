@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import warnings
+
 import numpy as np
 
 from robot36 import LINE, LINES, save_png
@@ -120,7 +122,8 @@ def merge(members, fill=None):
     if K >= 3:
         d = np.abs(A - mean[None]).mean((2, 3))
         dm = np.where(W > 0, d, np.nan)
-        with np.errstate(all="ignore"):
+        with np.errstate(all="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)   # строки, где усреднять нечего
             med = np.nanmedian(dm, axis=0)
         bad = (W > 0) & (cnt[None] >= 3) & (d > np.maximum(10.0, OUTLIER * np.nan_to_num(med))[None])
         if bad.any():

@@ -427,7 +427,7 @@ def save_png(rgb, path: Path):
 
 
 def save_meta(path: Path, q, start: bool, w0, lines: int, quality: float | None = None):
-    """Рядом с картинкой — качество каждой строки: по нему склейка и стопки решают,
+    """Рядом с картинкой — качество каждой строки: по нему склейка решает,
     какой строке сколько доверять."""
     import json
     try:
