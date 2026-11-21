@@ -45,7 +45,7 @@ jobs:
       - name: Архив
         shell: pwsh
         run: |
-          Copy-Item README.md, LICENSE dist/SSTV-MKS/
+          Copy-Item README.md, README.en.md, LICENSE dist/SSTV-MKS/
           Compress-Archive -Path dist/SSTV-MKS -DestinationPath "SSTV-MKS-${{ github.ref_name }}-windows.zip"
 
       - uses: actions/upload-artifact@v4
